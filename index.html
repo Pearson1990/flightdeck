@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Flightdeck</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -147,7 +147,7 @@ td.route{font-family:var(--mono);font-size:.8rem;word-break:break-word;margin:0}
   <div class="row">
     <input id="trkCs" placeholder="Callsign" aria-label="Callsign to track">
     <button id="trkGo">Find my flight</button>
-    <span class="none" id="mapCount"></span>
+    <span class="none" id="mapCount"></span><span class="err" id="mapErr"></span>
   </div>
   <div class="card" id="trkOut"><span class="none">Enter a callsign to find your aircraft. Your planned route is drawn in magenta.</span></div>
   <div id="map" class="frame" role="img" aria-label="Live VATSIM traffic map"></div>
@@ -333,10 +333,13 @@ function setTiles(){
   if(!map)return;if(tiles)map.removeLayer(tiles);
   tiles=L.tileLayer('https://{s}.basemaps.cartocdn.com/'+(isDark()?'dark_all':'light_all')+'/{z}/{x}/{y}{r}.png',
     {attribution:'&copy; OpenStreetMap contributors &copy; CARTO',maxZoom:12,subdomains:'abcd'}).addTo(map);
+  tiles.on('tileerror',()=>{$('mapErr').textContent='Map tiles could not load. An ad blocker or network filter may be blocking basemaps.cartocdn.com.'});
+  tiles.on('tileload',()=>{$('mapErr').textContent=''});
   tiles.bringToBack();
 }
+window.addEventListener('resize',()=>{if(map)map.invalidateSize()});
 function initMap(){
-  if(typeof L==='undefined'){$('map').textContent='The map library failed to load.';return}
+  if(typeof L==='undefined'){$('map').innerHTML='<p class="err" style="padding:16px">The map library did not load from cdn.jsdelivr.net. Check your connection or ad blocker, then reload.</p>';return}
   if(!map){
     map=L.map('map',{preferCanvas:true,worldCopyJump:true}).setView([39,-40],3);
     layer=L.layerGroup().addTo(map);routeLayer=L.layerGroup().addTo(map);
