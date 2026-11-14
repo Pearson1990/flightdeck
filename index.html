@@ -148,11 +148,12 @@ td.route{font-family:var(--mono);font-size:.8rem;word-break:break-word;margin:0}
   <div class="row">
     <input id="trkCs" placeholder="Callsign" aria-label="Callsign to track">
     <button id="trkGo">Find my flight</button>
+    <button class="ghost" id="followBtn" aria-pressed="false">Follow: off</button>
     <span class="none" id="mapCount"></span><span class="err" id="mapErr"></span>
   </div>
   <div class="card" id="trkOut"><span class="none">Enter a callsign to find your aircraft. Your planned route is drawn in magenta.</span></div>
   <div id="map" class="frame" role="img" aria-label="Live VATSIM traffic map"></div>
-  <p class="note">Each dot is a connected VATSIM pilot, refreshed every 15 seconds. Click one for details.</p>
+  <p class="note">Blue triangles are other VATSIM pilots, pointing the way they are heading. Your aircraft is the magenta one. Click any aircraft for details. Refreshes every 15 seconds.</p>
 </section>
 
 <section id="tab-rte" hidden>
@@ -327,9 +328,10 @@ async function taf(icao){
 }
 
 /* Live map */
-let map=null,layer,routeLayer,tiles,mapTimer;
+let map=null,traffic,routeLayer,tiles,mapTimer,follow=false,TrafficLayer=null;
 const cssv=n=>getComputedStyle(root).getPropertyValue(n).trim();
 const isDark=()=>root.dataset.theme?root.dataset.theme==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
+const PLANE=typeof Path2D!=='undefined'?new Path2D('M0 -10 L1.6 -6 L1.6 -2 L9 2 L9 4 L1.6 2 L1.5 7 L4 9 L4 10.5 L0 9.5 L-4 10.5 L-4 9 L-1.5 7 L-1.6 2 L-9 4 L-9 2 L-1.6 -2 L-1.6 -6 Z'):null;
 function setTiles(){
   if(!map)return;if(tiles)map.removeLayer(tiles);
   $('map').classList.toggle('dark-map',isDark());
@@ -338,50 +340,117 @@ function setTiles(){
   tiles.on('tileerror',()=>{$('mapErr').textContent='Map tiles could not load. An ad blocker or network filter may be blocking tile.openstreetmap.org.'});
   tiles.on('tileload',()=>{$('mapErr').textContent=''});
   tiles.bringToBack();
+  if(traffic)traffic.draw();
 }
-window.addEventListener('resize',()=>{if(map)map.invalidateSize()});
+function makeTraffic(){
+  if(TrafficLayer)return TrafficLayer;
+  TrafficLayer=L.Layer.extend({
+    initialize(){this.pilots=[];this.me=''},
+    onAdd(m){
+      this._m=m;const c=this._c=L.DomUtil.create('canvas','leaflet-zoom-hide');
+      c.style.position='absolute';c.style.left='0';c.style.top='0';c.style.pointerEvents='none';
+      m.getPane('traffic').appendChild(c);m.on('move resize zoomend',this.draw,this);this.draw();
+    },
+    onRemove(m){L.DomUtil.remove(this._c);m.off('move resize zoomend',this.draw,this)},
+    draw(){
+      const m=this._m;if(!m)return;const s=m.getSize(),c=this._c;
+      L.DomUtil.setPosition(c,m.containerPointToLayerPoint([0,0]));
+      if(c.width!==s.x)c.width=s.x;if(c.height!==s.y)c.height=s.y;
+      const x=c.getContext('2d');x.clearRect(0,0,s.x,s.y);
+      const blue=cssv('--mvfr'),mag=cssv('--route'),b=m.getBounds().pad(.05);let me=null;
+      x.fillStyle=blue;x.globalAlpha=.85;
+      for(const p of this.pilots){
+        if(p.callsign===this.me){me=p;continue}
+        if(!b.contains([p.latitude,p.longitude]))continue;
+        const q=m.latLngToContainerPoint([p.latitude,p.longitude]);
+        x.save();x.translate(q.x,q.y);x.rotate(p.heading*Math.PI/180);
+        x.beginPath();x.moveTo(0,-5);x.lineTo(3.5,4);x.lineTo(-3.5,4);x.closePath();x.fill();x.restore();
+      }
+      x.globalAlpha=1;
+      if(me&&PLANE){
+        const q=m.latLngToContainerPoint([me.latitude,me.longitude]);
+        x.save();x.translate(q.x,q.y);x.rotate(me.heading*Math.PI/180);x.scale(1.6,1.6);
+        x.fillStyle=mag;x.strokeStyle='#fff';x.lineWidth=1;x.fill(PLANE);x.stroke(PLANE);x.restore();
+      }
+    }
+  });
+  return TrafficLayer;
+}
 function initMap(){
   if(typeof L==='undefined'){$('map').innerHTML='<p class="err" style="padding:16px">The map library did not load from cdn.jsdelivr.net. Check your connection or ad blocker, then reload.</p>';return}
   if(!map){
-    map=L.map('map',{preferCanvas:true,worldCopyJump:true}).setView([39,-40],3);
-    layer=L.layerGroup().addTo(map);routeLayer=L.layerGroup().addTo(map);
+    map=L.map('map',{worldCopyJump:true}).setView([39,-40],3);
+    map.createPane('traffic').style.zIndex=450;
+    routeLayer=L.layerGroup().addTo(map);
+    traffic=new (makeTraffic())().addTo(map);
     setTiles();drawRoute(true);
+    map.on('dragstart',()=>setFollow(false));
+    map.on('click',e=>{
+      let best=null,bd=14;
+      for(const p of traffic.pilots){const q=map.latLngToContainerPoint([p.latitude,p.longitude]);const dd=Math.hypot(q.x-e.containerPoint.x,q.y-e.containerPoint.y);if(dd<bd){bd=dd;best=p}}
+      if(best){const fp=best.flight_plan||{};
+        L.popup().setLatLng([best.latitude,best.longitude]).setContent(`<b>${esc(best.callsign)}</b><br>${esc(fp.departure||'?')} to ${esc(fp.arrival||'?')}<br>${best.altitude.toLocaleString()} ft, ${best.groundspeed} kt, hdg ${best.heading}°`).openOn(map)}
+    });
   }
   setTimeout(()=>map.invalidateSize(),50);
   drawTraffic();clearInterval(mapTimer);
   mapTimer=setInterval(()=>{if(!$('tab-trk').hidden){vCache.t=0;drawTraffic()}},15000);
 }
+window.addEventListener('resize',()=>{if(map)map.invalidateSize()});
 function drawRoute(fit){
   if(!map)return;routeLayer.clearLayers();
   if(S.pts&&S.pts.length>1){
-    const c=cssv('--route'),l=L.polyline(S.pts,{color:c,weight:3}).addTo(routeLayer);
-    [[S.pts[0],S.dep],[S.pts[S.pts.length-1],S.arr]].forEach(([pt,n])=>L.circleMarker(pt,{radius:6,color:c,fillColor:c,fillOpacity:1}).bindTooltip(n||'',{permanent:true,direction:'top'}).addTo(routeLayer));
-    if(fit)map.fitBounds(l.getBounds(),{padding:[30,30]});
+    const c=cssv('--route'),ln=L.polyline(S.pts,{color:c,weight:3}).addTo(routeLayer);
+    [[S.pts[0],S.dep],[S.pts[S.pts.length-1],S.arr]].forEach(([pt,n])=>L.circleMarker(pt,{radius:5,color:c,fillColor:c,fillOpacity:1}).bindTooltip(n||'',{permanent:true,direction:'top'}).addTo(routeLayer));
+    if(fit)map.fitBounds(ln.getBounds(),{padding:[30,30]});
   }
 }
+function setFollow(on){
+  follow=on;$('followBtn').textContent='Follow: '+(on?'on':'off');$('followBtn').setAttribute('aria-pressed',on);
+}
+$('followBtn').onclick=()=>{setFollow(!follow);if(follow){vCache.t=0;drawTraffic(true)}};
+
+/* Route progress */
+const RNM=3440.065;
+function nm(a,b){const t=Math.PI/180,dl=(b[0]-a[0])*t,dn=(b[1]-a[1])*t,x=Math.sin(dl/2)**2+Math.cos(a[0]*t)*Math.cos(b[0]*t)*Math.sin(dn/2)**2;return 2*RNM*Math.asin(Math.sqrt(x))}
+function progress(p){
+  const pts=S.pts;if(!pts||pts.length<2)return null;
+  const me=[p.latitude,p.longitude],cum=[0];
+  for(let i=1;i<pts.length;i++)cum[i]=cum[i-1]+nm(pts[i-1],pts[i]);
+  const total=cum[cum.length-1],k=Math.cos(me[0]*Math.PI/180);let best={off:1e9,along:0};
+  for(let i=0;i<pts.length-1;i++){
+    const ax=(pts[i][1]-me[1])*k,ay=pts[i][0]-me[0],bx=(pts[i+1][1]-me[1])*k,by=pts[i+1][0]-me[0];
+    const dx=bx-ax,dy=by-ay,d2=dx*dx+dy*dy;
+    const t=d2?Math.max(0,Math.min(1,-(ax*dx+ay*dy)/d2)):0;
+    const off=Math.hypot(ax+t*dx,ay+t*dy)*60;
+    if(off<best.off)best={off,along:cum[i]+t*(cum[i+1]-cum[i])};
+  }
+  return {total,rem:Math.max(0,total-best.along),off:best.off};
+}
+const hm=h=>Math.floor(h)+'h '+String(Math.round((h%1)*60)).padStart(2,'0')+'m';
+
 async function drawTraffic(center){
   if(!map)return;
   try{
     const d=await vatsim(),me=$('trkCs').value.trim().toUpperCase();
-    layer.clearLayers();let mine=null;const c=cssv('--route'),b=cssv('--mvfr');
-    d.pilots.forEach(p=>{
-      const isMe=p.callsign===me;if(isMe)mine=p;
-      const fp=p.flight_plan||{};
-      L.circleMarker([p.latitude,p.longitude],{radius:isMe?8:3,weight:isMe?2:0,color:c,fillColor:isMe?c:b,fillOpacity:isMe?1:.7})
-        .on('click',e=>L.popup().setLatLng(e.latlng).setContent(`<b>${esc(p.callsign)}</b><br>${esc(fp.departure||'?')} to ${esc(fp.arrival||'?')}<br>${p.altitude.toLocaleString()} ft, ${p.groundspeed} kt`).openOn(map))
-        .addTo(layer);
-    });
+    traffic.pilots=d.pilots;traffic.me=me;traffic.draw();
+    const mine=d.pilots.find(p=>p.callsign===me)||null;
     $('mapCount').textContent=d.pilots.length+' pilots online';
     showMine(mine,me);
-    if(mine&&center===true)map.setView([mine.latitude,mine.longitude],6);
+    if(mine&&(center===true||follow))map.setView([mine.latitude,mine.longitude],center===true?Math.max(map.getZoom(),6):map.getZoom(),{animate:true});
   }catch(e){$('mapCount').innerHTML='<span class="err">Could not reach the VATSIM data feed.</span>'}
 }
 function showMine(p,cs){
   const out=$('trkOut');if(!cs)return;
   if(!p){out.innerHTML=`<span class="none">${esc(cs)} is not connected to VATSIM right now.</span>`;return}
-  const fp=p.flight_plan||{};
+  const fp=p.flight_plan||{},g=progress(p);let pr='<p class="note" style="margin:10px 0 0">Load a SimBrief plan to see route progress.</p>';
+  if(g){
+    const pct=g.total?Math.round(100*(1-g.rem/g.total)):0;
+    pr=`<div style="height:6px;background:var(--line);border-radius:3px;margin-top:12px"><div style="height:100%;width:${pct}%;background:var(--route);border-radius:3px"></div></div>
+      <p style="margin:6px 0 0">${Math.round(g.rem).toLocaleString()} nm remaining of ${Math.round(g.total).toLocaleString()} nm, ${pct}% flown${p.groundspeed>40?'. About '+hm(g.rem/p.groundspeed)+' at '+p.groundspeed+' kt':''}.${g.off>5?' <span class="err">'+Math.round(g.off)+' nm off the planned route.</span>':''}</p>`;
+  }
   out.innerHTML=`<table><tr><th>Callsign</th><th>Route</th><th>Altitude</th><th>Ground speed</th><th>Heading</th></tr>
-    <tr><td>${esc(p.callsign)}</td><td>${esc(fp.departure||'?')} to ${esc(fp.arrival||'?')}</td><td>${p.altitude.toLocaleString()} ft</td><td>${p.groundspeed} kt</td><td>${p.heading}°</td></tr></table>`;
+    <tr><td>${esc(p.callsign)}</td><td>${esc(fp.departure||'?')} to ${esc(fp.arrival||'?')}</td><td>${p.altitude.toLocaleString()} ft</td><td>${p.groundspeed} kt</td><td>${p.heading}°</td></tr></table>`+pr;
 }
 $('trkGo').onclick=()=>{vCache.t=0;drawTraffic(true)};
 
