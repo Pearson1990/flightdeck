@@ -327,7 +327,7 @@ async function taf(icao){
 }
 
 /* Live map */
-let map=null,traffic,routeLayer,tiles,mapTimer,follow=false,TrafficLayer=null;
+let map=null,traffic,routeLayer,tiles,mapTimer,follow=true,TrafficLayer=null;
 const cssv=n=>getComputedStyle(root).getPropertyValue(n).trim();
 const isDark=()=>root.dataset.theme?root.dataset.theme==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
 const PLANE=typeof Path2D!=='undefined'?new Path2D('M0 -10 L1.6 -6 L1.6 -2 L9 2 L9 4 L1.6 2 L1.5 7 L4 9 L4 10.5 L0 9.5 L-4 10.5 L-4 9 L-1.5 7 L-1.6 2 L-9 4 L-9 2 L-1.6 -2 L-1.6 -6 Z'):null;
