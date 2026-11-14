@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flightdeck</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#e9eef3; --panel:#f8fafc; --ink:#14233a; --mute:#5b6b80; --line:#c9d3de;
+  --route:#b0126f; --vfr:#1f8a4c; --mvfr:#2a62c9; --ifr:#c2271f; --lifr:#a3159e;
+  --ui:'Barlow Semi Condensed',system-ui,sans-serif; --mono:'JetBrains Mono',ui-monospace,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0c1522; --panel:#132033; --ink:#e4ecf5; --mute:#8fa2b8; --line:#243650;
+    --route:#ff5fb8; --vfr:#4cd08a; --mvfr:#6ea2ff; --ifr:#ff7b72; --lifr:#e07cf0; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0c1522; --panel:#132033; --ink:#e4ecf5; --mute:#8fa2b8; --line:#243650;
+  --route:#ff5fb8; --vfr:#4cd08a; --mvfr:#6ea2ff; --ifr:#ff7b72; --lifr:#e07cf0; color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:500 16px/1.45 var(--ui)}
+a{color:var(--route)}
+button,input{font:inherit;color:inherit}
+input,select{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px 10px;min-width:0}
+input:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--route);outline-offset:2px}
+button{cursor:pointer;background:var(--ink);color:var(--bg);border:0;border-radius:6px;padding:8px 14px;font-weight:600}
+button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.wrap{max-width:1180px;margin:0 auto;padding:20px 16px 48px}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:16px}
+h1{font-size:1.6rem;margin:0;letter-spacing:.01em}
+.load{display:flex;gap:8px;flex-wrap:wrap}
+.strip{background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--route);border-radius:8px;padding:16px 20px;margin-bottom:16px}
+.legs{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.icao{font-size:clamp(2rem,6vw,3.4rem);font-weight:700;line-height:1;letter-spacing:.02em}
+.sep{flex:1;min-width:40px;max-width:200px;height:2px;background:var(--route);align-self:center;position:relative}
+.sep::after{content:"";position:absolute;right:-2px;top:-4px;border:5px solid transparent;border-left:9px solid var(--route)}
+.meta{display:flex;flex-wrap:wrap;gap:6px 22px;margin-top:10px;color:var(--mute)}
+.meta b{color:var(--ink)}
+.route{font-family:var(--mono);font-size:.85rem;margin-top:10px;word-break:break-word}
+details{margin-top:12px}
+summary{cursor:pointer;color:var(--mute)}
+.manual{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-top:10px}
+.manual label{display:flex;flex-direction:column;font-size:.85rem;color:var(--mute);gap:3px}
+.manual .wide{grid-column:1/-1}
+nav{display:flex;gap:4px;border-bottom:2px solid var(--line);margin-bottom:16px;overflow-x:auto}
+nav button{background:none;color:var(--mute);border-radius:6px 6px 0 0;border-bottom:3px solid transparent;margin-bottom:-2px;padding:10px 16px;white-space:nowrap}
+nav button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--route)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px;min-width:0}
+.card h3{margin:0 0 8px;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:1.15rem}
+.role{color:var(--mute);font-weight:500;font-size:.9rem}
+.cat{font-weight:700;font-size:.8rem;padding:2px 8px;border-radius:20px;color:#fff}
+.VFR{background:var(--vfr)}.MVFR{background:var(--mvfr)}.IFR{background:var(--ifr)}.LIFR{background:var(--lifr)}
+:root[data-theme="dark"] .cat{color:#08121f}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .cat{color:#08121f}}
+.raw{font-family:var(--mono);font-size:.8rem;background:var(--bg);border-radius:6px;padding:8px 10px;word-break:break-word;margin:0 0 8px}
+.dec{display:grid;grid-template-columns:repeat(2,1fr);gap:4px 12px;margin-bottom:8px}
+.dec span{color:var(--mute);font-size:.85rem;display:block}
+.atis{border-top:1px dashed var(--line);padding-top:8px}
+.atis .hd{display:flex;gap:10px;align-items:center;font-weight:600}
+.letter{background:var(--route);color:#fff;border-radius:4px;padding:0 8px;font-size:1.1rem}
+.atis p{font-family:var(--mono);font-size:.78rem;margin:6px 0 0;color:var(--mute);word-break:break-word}
+.none{color:var(--mute);font-size:.9rem}
+.err{color:var(--ifr)}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+table{width:100%;border-collapse:collapse;font-size:.95rem}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+th{color:var(--mute);font-weight:500}
+.frame{width:100%;height:62vh;min-height:360px;border:1px solid var(--line);border-radius:8px;background:var(--panel);margin-top:12px}
+.leaflet-container{font-family:var(--ui)}
+tr.mine td:first-child{box-shadow:inset 4px 0 var(--route)}
+td.route{font-family:var(--mono);font-size:.8rem;word-break:break-word;margin:0}
+.links{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+.links a{display:block;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;text-decoration:none;color:var(--ink)}
+.links a small{display:block;color:var(--mute);font-weight:400}
+.links a:hover{border-color:var(--route)}
+.note{color:var(--mute);font-size:.9rem;max-width:70ch}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Flightdeck</h1>
+  <div class="load">
+    <input id="sbUser" placeholder="SimBrief username" aria-label="SimBrief username" autocomplete="off">
+    <button id="sbLoad">Load latest plan</button>
+    <button class="ghost" id="theme" aria-label="Toggle theme">Theme</button>
+  </div>
+</header>
+
+<section class="strip" aria-live="polite">
+  <div class="legs">
+    <span class="icao" id="sDep">----</span><span class="sep"></span><span class="icao" id="sArr">----</span>
+  </div>
+  <div class="meta">
+    <span>Callsign <b id="sCs">-</b></span>
+    <span>Aircraft <b id="sAc">-</b></span>
+    <span>Cruise <b id="sAlt">-</b></span>
+    <span>Alternate <b id="sAlt2">-</b></span>
+    <span id="sStatus"></span>
+    <a id="sbEdit" href="https://dispatch.simbrief.com/home" target="_blank" rel="noopener">Edit in SimBrief</a>
+  </div>
+  <div class="route" id="sRoute">Load a SimBrief plan or enter a flight below.</div>
+  <details>
+    <summary>Enter or edit flight manually (for vAMSYS dispatch)</summary>
+    <div class="manual">
+      <label>Callsign<input id="mCs"></label>
+      <label>Departure<input id="mDep" maxlength="4"></label>
+      <label>Arrival<input id="mArr" maxlength="4"></label>
+      <label>Alternate<input id="mAlt" maxlength="4"></label>
+      <label>Aircraft<input id="mAc"></label>
+      <label>Cruise<input id="mFl"></label>
+      <label class="wide">Route<input id="mRoute"></label>
+    </div>
+    <div class="row" style="margin-top:10px"><button id="mApply">Apply flight</button></div>
+  </details>
+</section>
+
+<nav role="tablist">
+  <button role="tab" data-tab="wx" aria-selected="true">Weather and ATIS</button>
+  <button role="tab" data-tab="trk" aria-selected="false">Tracker</button>
+  <button role="tab" data-tab="rte" aria-selected="false">Route analysis</button>
+  <button role="tab" data-tab="va" aria-selected="false">Saved flights</button>
+</nav>
+
+<section id="tab-wx">
+  <div class="row">
+    <input id="extra" placeholder="Any other ICAO" maxlength="4" aria-label="Other airport ICAO">
+    <button id="extraGo">Add airport</button>
+    <label class="note" style="display:flex;align-items:center;gap:6px">Source <select id="src" aria-label="Weather source"><option value="real">Real-world</option><option value="vatsim">VATSIM</option></select></label>
+    <button class="ghost" id="wxRefresh">Refresh</button>
+  </div>
+  <div class="grid" id="wxGrid"></div>
+  <p class="note">Real-world mode shows current METARs, TAFs and D-ATIS. D-ATIS covers mainly US airports. VATSIM mode shows the network’s METAR and any online VATSIM ATIS; TAFs are always real-world.</p>
+</section>
+
+<section id="tab-trk" hidden>
+  <div class="row">
+    <input id="trkCs" placeholder="Callsign" aria-label="Callsign to track">
+    <button id="trkGo">Find my flight</button>
+    <span class="none" id="mapCount"></span>
+  </div>
+  <div class="card" id="trkOut"><span class="none">Enter a callsign to find your aircraft. Your planned route is drawn in magenta.</span></div>
+  <div id="map" class="frame" role="img" aria-label="Live VATSIM traffic map"></div>
+  <p class="note">Each dot is a connected VATSIM pilot, refreshed every 15 seconds. Click one for details.</p>
+</section>
+
+<section id="tab-rte" hidden>
+  <div class="row">
+    <input id="rOrg" placeholder="Origin ICAO" maxlength="4" aria-label="Origin">
+    <input id="rDst" placeholder="Destination ICAO" maxlength="4" aria-label="Destination">
+    <button id="rGo">Analyze routes</button>
+  </div>
+  <div class="card" id="rOut"><span class="none">Shows the routes pilots have filed or prefiled on VATSIM between two airports, most common first. Your planned route is marked.</span></div>
+  <div class="card" style="margin-top:14px">
+    <h3>Planned route <button class="ghost" id="copyRoute">Copy</button></h3>
+    <div class="route" id="rPlan">-</div>
+  </div>
+  <p class="note">This is a snapshot of plans on the network right now, so busy city pairs give the best results.</p>
+</section>
+
+<section id="tab-va" hidden>
+  <div class="row"><button id="bSave">Save current flight</button></div>
+  <div class="card"><table><tr><th>Callsign</th><th>Route</th><th>Aircraft</th><th></th></tr><tbody id="bList"></tbody></table></div>
+  <p class="note">Book in vAMSYS, enter the details under Enter or edit flight manually, then save it here. Saved flights stay in this browser.</p>
+</section>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+let S=JSON.parse(store.get('fd_flight')||'{}');
+let extras=JSON.parse(store.get('fd_extras')||'[]');
+let SRC=store.get('fd_src')==='vatsim'?'vatsim':'real';
+
+/* theme */
+const root=document.documentElement;
+if(store.get('fd_theme'))root.dataset.theme=store.get('fd_theme');
+$('theme').onclick=()=>{const dark=root.dataset.theme?root.dataset.theme==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
+  root.dataset.theme=dark?'light':'dark';store.set('fd_theme',root.dataset.theme);setTiles()};
+
+/* tabs */
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('nav button').forEach(x=>x.setAttribute('aria-selected',x===b));
+  ['wx','trk','rte','va'].forEach(t=>$('tab-'+t).hidden=t!==b.dataset.tab);
+  if(b.dataset.tab==='trk')initMap();if(b.dataset.tab==='rte')analyze();
+});
+
+/* flight state */
+function save(){store.set('fd_flight',JSON.stringify(S))}
+function render(){
+  $('sDep').textContent=S.dep||'----';$('sArr').textContent=S.arr||'----';
+  $('sCs').textContent=S.cs||'-';$('sAc').textContent=S.ac||'-';
+  $('sAlt').textContent=S.fl||'-';$('sAlt2').textContent=S.alt||'-';
+  $('sRoute').textContent=S.route?`${S.dep} ${S.route} ${S.arr}`:'Load a SimBrief plan or enter a flight below.';
+  $('mCs').value=S.cs||'';$('mDep').value=S.dep||'';$('mArr').value=S.arr||'';$('mAlt').value=S.alt||'';
+  $('mAc').value=S.ac||'';$('mFl').value=S.fl||'';$('mRoute').value=S.route||'';
+  $('trkCs').value=S.cs||'';$('rOrg').value=S.dep||'';$('rDst').value=S.arr||'';
+  $('rPlan').textContent=S.route?`${S.dep} ${S.route} ${S.arr}`:'-';
+  updateEdit();drawRoute();loadWx();
+}
+$('mApply').onclick=()=>{
+  S={cs:$('mCs').value.trim().toUpperCase(),dep:$('mDep').value.trim().toUpperCase(),arr:$('mArr').value.trim().toUpperCase(),
+     alt:$('mAlt').value.trim().toUpperCase(),ac:$('mAc').value.trim().toUpperCase(),fl:$('mFl').value.trim(),route:$('mRoute').value.trim().toUpperCase()};
+  save();render();
+};
+
+/* Network helper: direct first, then public CORS proxies */
+async function net(u){
+  const tries=[u,'https://corsproxy.io/?url='+encodeURIComponent(u),'https://api.allorigins.win/raw?url='+encodeURIComponent(u)];
+  let err=new Error('Network error');
+  for(const t of tries){try{const r=await fetch(t);const x=await r.text();if(r.ok||r.status===400||r.status===404)return x;err=new Error('HTTP '+r.status)}catch(e){err=e}}
+  throw err;
+}
+
+/* SimBrief */
+$('sbUser').value=store.get('fd_sb')||'';
+function updateEdit(){$('sbEdit').href='https://dispatch.simbrief.com/home'}
+$('sbLoad').onclick=async()=>{
+  const u=$('sbUser').value.trim();if(!u)return;
+  store.set('fd_sb',u);$('sStatus').textContent='Loading plan…';
+  try{
+    const q=(/^\d+$/.test(u)?'userid=':'username=')+encodeURIComponent(u);
+    let j;try{j=JSON.parse(await net('https://www.simbrief.com/api/xml.fetcher.php?'+q+'&json=1'))}catch(e){throw new Error('SimBrief returned no plan data. Check the username or Pilot ID')}
+    if(j.fetch&&j.fetch.status&&j.fetch.status!=='Success')throw new Error(j.fetch.status);
+    const alt=Array.isArray(j.alternate)?j.alternate[0]:j.alternate;
+    const fx=j.navlog&&j.navlog.fix?[].concat(j.navlog.fix):[];
+    S={cs:(j.atc&&j.atc.callsign)||((j.general.icao_airline||'')+(j.general.flight_number||'')),
+       dep:j.origin.icao_code,arr:j.destination.icao_code,alt:(alt&&alt.icao_code)||'',
+       ac:j.aircraft.icaocode,fl:j.general.initial_altitude?'FL'+Math.round(j.general.initial_altitude/100):'',
+       route:j.general.route,
+       pts:fx.map(f=>[+f.pos_lat,+f.pos_long]).filter(x=>isFinite(x[0])&&isFinite(x[1]))};
+    $('sStatus').textContent='';save();render();
+  }catch(e){$('sStatus').innerHTML='<span class="err">Could not load plan: '+esc(e.message)+'.</span>'}
+};
+
+/* VATSIM data (cached) */
+let vCache={t:0,d:null};
+async function vatsim(){
+  if(vCache.d&&Date.now()-vCache.t<15000)return vCache.d;
+  vCache={t:Date.now(),d:JSON.parse(await net('https://data.vatsim.net/v3/vatsim-data.json'))};return vCache.d;
+}
+
+/* METAR decode */
+function decode(m){
+  const o={};let t=' '+m+' ';
+  let w=t.match(/\s(\d{3}|VRB)(\d{2,3})(?:G(\d{2,3}))?KT/);
+  o.wind=w?`${w[1]==='VRB'?'Variable':w[1]+'°'} at ${+w[2]} kt${w[3]?' gusting '+ +w[3]:''}`:'-';
+  let vis=null;
+  if(/\sCAVOK\s/.test(t))vis=10;
+  else{const v=t.match(/\s[MP]?(?:(\d+)\s)?(\d+\/\d+|\d+)SM/);
+    if(v){let f=v[2].includes('/')?v[2].split('/').reduce((a,b)=>a/b):+v[2];vis=(v[1]?+v[1]:0)+f;}
+    else{const k=t.match(/\s(\d{4})\s/);if(k)vis=+k[1]/1609;}}
+  o.vis=vis==null?'-':vis>=10?'10+ SM':(Math.round(vis*10)/10)+' SM';
+  let c=[...t.matchAll(/\s(BKN|OVC|VV)(\d{3})/g)].map(x=>+x[2]*100);
+  const ceil=c.length?Math.min(...c):null;o.ceil=ceil==null?'None':ceil+' ft';
+  const a=t.match(/\sA(\d{4})\s/),q=t.match(/\sQ(\d{4})\s/);
+  o.alt=a?(a[1]/100).toFixed(2)+' inHg':q?(+q[1])+' hPa':'-';
+  const tp=t.match(/\s(M?\d{2})\/(M?\d{2})\s/);
+  const n=s=>s[0]==='M'?-s.slice(1):+s;
+  o.temp=tp?`${n(tp[1])}° / ${n(tp[2])}° C`:'-';
+  let cat='VFR';const V=vis==null?99:vis,C=ceil==null?99999:ceil;
+  if(V<1||C<500)cat='LIFR';else if(V<3||C<1000)cat='IFR';else if(V<=5||C<=3000)cat='MVFR';
+  o.cat=cat;return o;
+}
+
+/* Weather cards */
+function airports(){
+  const l=[[S.dep,'Departure'],[S.arr,'Arrival'],[S.alt,'Alternate'],...extras.map(e=>[e,'Added'])];
+  const seen=new Set();return l.filter(([i])=>i&&i.length>=3&&!seen.has(i)&&seen.add(i));
+}
+async function loadWx(){
+  const list=airports(),g=$('wxGrid');
+  if(!list.length){g.innerHTML='<div class="card none">No airports yet. Load a flight or add an ICAO above.</div>';return}
+  g.innerHTML=list.map(([i,r])=>`<div class="card" id="wx-${esc(i)}"><h3><span>${esc(i)} <span class="role">${r}</span></span></h3><span class="none">Loading…</span></div>`).join('');
+  let v=null;if(SRC==='vatsim'){try{v=await vatsim()}catch(e){}}
+  list.forEach(async([icao,role])=>{
+    const el=$('wx-'+icao);let html='';
+    try{
+      const m=(await net(SRC==='vatsim'?'https://metar.vatsim.net/'+icao:'https://aviationweather.gov/api/data/metar?ids='+icao+'&format=raw')).trim().split('\n')[0].trim();
+      if(!m||/<html|not found|error/i.test(m))throw new Error('No METAR');
+      const d=decode(m);
+      html=`<h3><span>${esc(icao)} <span class="role">${role}</span></span><span class="cat ${d.cat}">${d.cat}</span></h3>
+        <p class="raw">${esc(m)}</p>
+        <div class="dec"><div><span>Wind</span>${esc(d.wind)}</div><div><span>Visibility</span>${esc(d.vis)}</div>
+        <div><span>Ceiling</span>${esc(d.ceil)}</div><div><span>Altimeter</span>${esc(d.alt)}</div>
+        <div><span>Temp / dew</span>${esc(d.temp)}</div></div>`;
+    }catch(e){html=`<h3><span>${esc(icao)} <span class="role">${role}</span></span></h3><p class="err">No METAR available for ${esc(icao)}.</p>`}
+    let at;
+    if(SRC==='vatsim'){
+      at='<span class="none">VATSIM ATIS unavailable.</span>';
+      if(v){const a=v.atis.filter(x=>x.callsign.startsWith(icao));
+        at=a.length?a.map(x=>`<div class="hd"><span class="letter">${esc(x.atis_code||'?')}</span><span>${esc(x.callsign)} ${esc(x.frequency)}</span></div><p>${esc((x.text_atis||[]).join(' '))}</p>`).join('')
+          :'<span class="none">No VATSIM ATIS online.</span>';}
+    }else at=await realAtis(icao);
+    el.innerHTML=html+`<div class="atis">${at}</div><div class="atis" id="taf-${esc(icao)}"></div>`;taf(icao);
+  });
+}
+$('wxRefresh').onclick=()=>{vCache.t=0;loadWx()};
+$('extraGo').onclick=()=>{const v=$('extra').value.trim().toUpperCase();if(v.length>=3){extras.push(v);store.set('fd_extras',JSON.stringify(extras));$('extra').value='';loadWx()}};
+$('extra').onkeydown=e=>{if(e.key==='Enter')$('extraGo').click()};
+
+async function realAtis(icao){
+  try{
+    const j=JSON.parse(await net('https://datis.clowd.io/api/'+icao));
+    if(!Array.isArray(j)||!j.length)return '<span class="none">No D-ATIS published for '+esc(icao)+'.</span>';
+    return j.map(x=>`<div class="hd"><span class="letter">${esc(x.code||'?')}</span><span>${esc(x.type||'ATIS')}</span></div><p>${esc(x.datis)}</p>`).join('');
+  }catch(e){return '<span class="none">Real-world ATIS unavailable for '+esc(icao)+'.</span>'}
+}
+async function taf(icao){
+  const el=$('taf-'+icao);if(!el)return;
+  try{const t=(await net('https://aviationweather.gov/api/data/taf?ids='+icao)).trim();
+    if(t&&!/<html/i.test(t)&&t.length<1500)el.innerHTML='<div class="hd">TAF</div><p>'+esc(t)+'</p>';else el.remove()}catch(e){el.remove()}
+}
+
+/* Live map */
+let map=null,layer,routeLayer,tiles,mapTimer;
+const cssv=n=>getComputedStyle(root).getPropertyValue(n).trim();
+const isDark=()=>root.dataset.theme?root.dataset.theme==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
+function setTiles(){
+  if(!map)return;if(tiles)map.removeLayer(tiles);
+  tiles=L.tileLayer('https://{s}.basemaps.cartocdn.com/'+(isDark()?'dark_all':'light_all')+'/{z}/{x}/{y}{r}.png',
+    {attribution:'&copy; OpenStreetMap contributors &copy; CARTO',maxZoom:12,subdomains:'abcd'}).addTo(map);
+  tiles.bringToBack();
+}
+function initMap(){
+  if(typeof L==='undefined'){$('map').textContent='The map library failed to load.';return}
+  if(!map){
+    map=L.map('map',{preferCanvas:true,worldCopyJump:true}).setView([39,-40],3);
+    layer=L.layerGroup().addTo(map);routeLayer=L.layerGroup().addTo(map);
+    setTiles();drawRoute(true);
+  }
+  setTimeout(()=>map.invalidateSize(),50);
+  drawTraffic();clearInterval(mapTimer);
+  mapTimer=setInterval(()=>{if(!$('tab-trk').hidden){vCache.t=0;drawTraffic()}},15000);
+}
+function drawRoute(fit){
+  if(!map)return;routeLayer.clearLayers();
+  if(S.pts&&S.pts.length>1){
+    const c=cssv('--route'),l=L.polyline(S.pts,{color:c,weight:3}).addTo(routeLayer);
+    [[S.pts[0],S.dep],[S.pts[S.pts.length-1],S.arr]].forEach(([pt,n])=>L.circleMarker(pt,{radius:6,color:c,fillColor:c,fillOpacity:1}).bindTooltip(n||'',{permanent:true,direction:'top'}).addTo(routeLayer));
+    if(fit)map.fitBounds(l.getBounds(),{padding:[30,30]});
+  }
+}
+async function drawTraffic(center){
+  if(!map)return;
+  try{
+    const d=await vatsim(),me=$('trkCs').value.trim().toUpperCase();
+    layer.clearLayers();let mine=null;const c=cssv('--route'),b=cssv('--mvfr');
+    d.pilots.forEach(p=>{
+      const isMe=p.callsign===me;if(isMe)mine=p;
+      const fp=p.flight_plan||{};
+      L.circleMarker([p.latitude,p.longitude],{radius:isMe?8:3,weight:isMe?2:0,color:c,fillColor:isMe?c:b,fillOpacity:isMe?1:.7})
+        .on('click',e=>L.popup().setLatLng(e.latlng).setContent(`<b>${esc(p.callsign)}</b><br>${esc(fp.departure||'?')} to ${esc(fp.arrival||'?')}<br>${p.altitude.toLocaleString()} ft, ${p.groundspeed} kt`).openOn(map))
+        .addTo(layer);
+    });
+    $('mapCount').textContent=d.pilots.length+' pilots online';
+    showMine(mine,me);
+    if(mine&&center===true)map.setView([mine.latitude,mine.longitude],6);
+  }catch(e){$('mapCount').innerHTML='<span class="err">Could not reach the VATSIM data feed.</span>'}
+}
+function showMine(p,cs){
+  const out=$('trkOut');if(!cs)return;
+  if(!p){out.innerHTML=`<span class="none">${esc(cs)} is not connected to VATSIM right now.</span>`;return}
+  const fp=p.flight_plan||{};
+  out.innerHTML=`<table><tr><th>Callsign</th><th>Route</th><th>Altitude</th><th>Ground speed</th><th>Heading</th></tr>
+    <tr><td>${esc(p.callsign)}</td><td>${esc(fp.departure||'?')} to ${esc(fp.arrival||'?')}</td><td>${p.altitude.toLocaleString()} ft</td><td>${p.groundspeed} kt</td><td>${p.heading}°</td></tr></table>`;
+}
+$('trkGo').onclick=()=>{vCache.t=0;drawTraffic(true)};
+
+/* Route analysis from filed VATSIM plans */
+const norm=r=>String(r||'').toUpperCase().replace(/\s+/g,' ').trim();
+async function analyze(){
+  const o=$('rOrg').value.trim().toUpperCase(),d=$('rDst').value.trim().toUpperCase(),out=$('rOut');
+  if(o.length<3||d.length<3){out.innerHTML='<span class="none">Enter an origin and destination.</span>';return}
+  out.textContent='Reading filed flight plans…';
+  try{
+    const v=await vatsim();
+    const plans=[...v.pilots,...(v.prefiles||[])].map(x=>x.flight_plan&&Object.assign({cs:x.callsign},x.flight_plan))
+      .filter(f=>f&&f.departure===o&&f.arrival===d&&norm(f.route));
+    if(!plans.length){out.innerHTML=`<span class="none">No plans from ${esc(o)} to ${esc(d)} are filed on VATSIM right now. Try a busier pair or check again later.</span>`;return}
+    const g=new Map();
+    plans.forEach(f=>{const k=norm(f.route);const e=g.get(k)||{n:0,alt:new Set(),ac:new Set()};
+      e.n++;if(f.altitude)e.alt.add(f.altitude);if(f.aircraft_short)e.ac.add(f.aircraft_short);g.set(k,e)});
+    const mineR=(o===S.dep&&d===S.arr)?norm(S.route):'';
+    const rows=[...g].sort((a,b)=>b[1].n-a[1].n);
+    const match=mineR&&g.has(mineR)?g.get(mineR).n:0;
+    out.innerHTML=`<p style="margin:0 0 8px">${plans.length} plans, ${rows.length} distinct routes.${mineR?(match?` Your route matches ${match} of them.`:' Your route does not match any filed route exactly.'):''}</p>
+      <div style="overflow-x:auto"><table><tr><th>Filed</th><th>Route</th><th>Altitudes</th><th>Aircraft</th></tr>`+
+      rows.map(([r,e])=>`<tr class="${r===mineR?'mine':''}"><td>${e.n}</td><td class="route">${esc(r)}</td><td>${esc([...e.alt].slice(0,4).join(', '))}</td><td>${esc([...e.ac].slice(0,4).join(', '))}</td></tr>`).join('')+'</table></div>';
+  }catch(e){out.innerHTML='<span class="err">Could not read the VATSIM plan data.</span>'}
+}
+$('rGo').onclick=analyze;
+['rOrg','rDst'].forEach(i=>$(i).onkeydown=e=>{if(e.key==='Enter')analyze()});
+$('copyRoute').onclick=()=>{const t=$('rPlan').textContent;navigator.clipboard&&navigator.clipboard.writeText(t);$('copyRoute').textContent='Copied';setTimeout(()=>$('copyRoute').textContent='Copy',1200)};
+
+/* Saved flights */
+let board=JSON.parse(store.get('fd_board')||'[]');
+function renderBoard(){
+  $('bList').innerHTML=board.length?board.map((f,i)=>`<tr><td>${esc(f.cs)}</td><td>${esc(f.dep)} to ${esc(f.arr)}</td><td>${esc(f.ac)}</td><td><button class="ghost" data-l="${i}">Load</button> <button class="ghost" data-d="${i}">Delete</button></td></tr>`).join('')
+    :'<tr><td colspan="4" class="none">No saved flights yet.</td></tr>';
+}
+$('bList').onclick=e=>{
+  const l=e.target.dataset.l,d=e.target.dataset.d;
+  if(l!=null){S=board[l];save();render();drawRoute(true)}
+  if(d!=null){board.splice(d,1);store.set('fd_board',JSON.stringify(board));renderBoard()}
+};
+$('bSave').onclick=()=>{if(!S.dep||!S.arr)return;board.unshift(Object.assign({},S));board=board.slice(0,30);store.set('fd_board',JSON.stringify(board));renderBoard()};
+
+$('src').value=SRC;
+$('src').onchange=()=>{SRC=$('src').value;store.set('fd_src',SRC);vCache.t=0;loadWx()};
+renderBoard();render();
+</script>
+</body>
+</html>
