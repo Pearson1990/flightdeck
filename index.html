@@ -159,6 +159,7 @@ td.route{font-family:var(--mono);font-size:.8rem;word-break:break-word;margin:0}
     <input id="rOrg" placeholder="Origin ICAO" maxlength="4" aria-label="Origin">
     <input id="rDst" placeholder="Destination ICAO" maxlength="4" aria-label="Destination">
     <button id="rGo">Analyze routes</button>
+    <a id="faLink" href="https://www.flightaware.com/analysis/route.rvt" target="_blank" rel="noopener"><button class="ghost" type="button">Open in FlightAware</button></a>
   </div>
   <div class="card" id="rOut"><span class="none">Shows the routes pilots have filed or prefiled on VATSIM between two airports, most common first. Your planned route is marked.</span></div>
   <div class="card" style="margin-top:14px">
@@ -207,7 +208,7 @@ function render(){
   $('mAc').value=S.ac||'';$('mFl').value=S.fl||'';$('mRoute').value=S.route||'';
   $('trkCs').value=S.cs||'';$('rOrg').value=S.dep||'';$('rDst').value=S.arr||'';
   $('rPlan').textContent=S.route?`${S.dep} ${S.route} ${S.arr}`:'-';
-  updateEdit();drawRoute();loadWx();
+  updateEdit();faUpdate();drawRoute();loadWx();
 }
 $('mApply').onclick=()=>{
   S={cs:$('mCs').value.trim().toUpperCase(),dep:$('mDep').value.trim().toUpperCase(),arr:$('mArr').value.trim().toUpperCase(),
@@ -379,6 +380,14 @@ function showMine(p,cs){
 $('trkGo').onclick=()=>{vCache.t=0;drawTraffic(true)};
 
 /* Route analysis from filed VATSIM plans */
+function normAlt(a){
+  a=String(a||'').trim().toUpperCase();let m;
+  if((m=a.match(/^(?:FL|F)?(\d{3})$/)))return {k:'FL'+m[1],v:m[1]*100};
+  if((m=a.match(/^(\d{4,5})$/)))return +m[1]>=18000?{k:'FL'+Math.round(m[1]/100),v:+m[1]}:{k:(+m[1]).toLocaleString()+' ft',v:+m[1]};
+  return null;
+}
+const bump=(m,k)=>m.set(k,(m.get(k)||0)+1);
+const altStr=m=>[...m].sort((a,b)=>b[1]-a[1]||(normAlt(b[0].replace('FL',''))||{v:0}).v-(normAlt(a[0].replace('FL',''))||{v:0}).v).map(([k,n])=>k+(n>1?' ×'+n:'')).join(', ');
 const norm=r=>String(r||'').toUpperCase().replace(/\s+/g,' ').trim();
 async function analyze(){
   const o=$('rOrg').value.trim().toUpperCase(),d=$('rDst').value.trim().toUpperCase(),out=$('rOut');
@@ -389,17 +398,23 @@ async function analyze(){
     const plans=[...v.pilots,...(v.prefiles||[])].map(x=>x.flight_plan&&Object.assign({cs:x.callsign},x.flight_plan))
       .filter(f=>f&&f.departure===o&&f.arrival===d&&norm(f.route));
     if(!plans.length){out.innerHTML=`<span class="none">No plans from ${esc(o)} to ${esc(d)} are filed on VATSIM right now. Try a busier pair or check again later.</span>`;return}
-    const g=new Map();
-    plans.forEach(f=>{const k=norm(f.route);const e=g.get(k)||{n:0,alt:new Set(),ac:new Set()};
-      e.n++;if(f.altitude)e.alt.add(f.altitude);if(f.aircraft_short)e.ac.add(f.aircraft_short);g.set(k,e)});
+    const g=new Map(),allAlt=new Map();
+    plans.forEach(f=>{const k=norm(f.route);const e=g.get(k)||{n:0,alt:new Map(),ac:new Set()};
+      e.n++;const na=normAlt(f.altitude);if(na){bump(e.alt,na.k);bump(allAlt,na.k)}if(f.aircraft_short)e.ac.add(f.aircraft_short);g.set(k,e)});
     const mineR=(o===S.dep&&d===S.arr)?norm(S.route):'';
     const rows=[...g].sort((a,b)=>b[1].n-a[1].n);
     const match=mineR&&g.has(mineR)?g.get(mineR).n:0;
-    out.innerHTML=`<p style="margin:0 0 8px">${plans.length} plans, ${rows.length} distinct routes.${mineR?(match?` Your route matches ${match} of them.`:' Your route does not match any filed route exactly.'):''}</p>
+    out.innerHTML=`<p style="margin:0 0 8px"><b>Filed altitudes:</b> ${esc(altStr(allAlt)||'none filed')}${mineR&&S.fl?'. Your planned '+esc(S.fl)+(allAlt.has(S.fl)?' is filed by '+allAlt.get(S.fl)+' of '+plans.length+'.':' is not filed by anyone right now.'):''}</p>
+      <p style="margin:0 0 8px">${plans.length} plans, ${rows.length} distinct routes.${mineR?(match?` Your route matches ${match} of them.`:' Your route does not match any filed route exactly.'):''}</p>
       <div style="overflow-x:auto"><table><tr><th>Filed</th><th>Route</th><th>Altitudes</th><th>Aircraft</th></tr>`+
-      rows.map(([r,e])=>`<tr class="${r===mineR?'mine':''}"><td>${e.n}</td><td class="route">${esc(r)}</td><td>${esc([...e.alt].slice(0,4).join(', '))}</td><td>${esc([...e.ac].slice(0,4).join(', '))}</td></tr>`).join('')+'</table></div>';
+      rows.map(([r,e])=>`<tr class="${r===mineR?'mine':''}"><td>${e.n}</td><td class="route">${esc(r)}</td><td>${esc(altStr(e.alt))}</td><td>${esc([...e.ac].slice(0,4).join(', '))}</td></tr>`).join('')+'</table></div>';
   }catch(e){out.innerHTML='<span class="err">Could not read the VATSIM plan data.</span>'}
 }
+function faUpdate(){
+  const o=$('rOrg').value.trim().toUpperCase(),d=$('rDst').value.trim().toUpperCase();
+  $('faLink').href='https://www.flightaware.com/analysis/route.rvt'+(o&&d?'?origin='+encodeURIComponent(o)+'&destination='+encodeURIComponent(d):'');
+}
+['rOrg','rDst'].forEach(i=>$(i).addEventListener('input',faUpdate));
 $('rGo').onclick=analyze;
 ['rOrg','rDst'].forEach(i=>$(i).onkeydown=e=>{if(e.key==='Enter')analyze()});
 $('copyRoute').onclick=()=>{const t=$('rPlan').textContent;navigator.clipboard&&navigator.clipboard.writeText(t);$('copyRoute').textContent='Copied';setTimeout(()=>$('copyRoute').textContent='Copy',1200)};
