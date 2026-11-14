@@ -76,6 +76,7 @@ th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
 th{color:var(--mute);font-weight:500}
 .frame{width:100%;height:62vh;min-height:360px;border:1px solid var(--line);border-radius:8px;background:var(--panel);margin-top:12px}
 .leaflet-container{font-family:var(--ui)}
+.dark-map .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) saturate(.5) brightness(.85) contrast(.9)}
 tr.mine td:first-child{box-shadow:inset 4px 0 var(--route)}
 td.route{font-family:var(--mono);font-size:.8rem;word-break:break-word;margin:0}
 .links{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
@@ -331,9 +332,10 @@ const cssv=n=>getComputedStyle(root).getPropertyValue(n).trim();
 const isDark=()=>root.dataset.theme?root.dataset.theme==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
 function setTiles(){
   if(!map)return;if(tiles)map.removeLayer(tiles);
-  tiles=L.tileLayer('https://{s}.basemaps.cartocdn.com/'+(isDark()?'dark_all':'light_all')+'/{z}/{x}/{y}{r}.png',
-    {attribution:'&copy; OpenStreetMap contributors &copy; CARTO',maxZoom:12,subdomains:'abcd'}).addTo(map);
-  tiles.on('tileerror',()=>{$('mapErr').textContent='Map tiles could not load. An ad blocker or network filter may be blocking basemaps.cartocdn.com.'});
+  $('map').classList.toggle('dark-map',isDark());
+  tiles=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    {attribution:'&copy; OpenStreetMap contributors',maxZoom:12}).addTo(map);
+  tiles.on('tileerror',()=>{$('mapErr').textContent='Map tiles could not load. An ad blocker or network filter may be blocking tile.openstreetmap.org.'});
   tiles.on('tileload',()=>{$('mapErr').textContent=''});
   tiles.bringToBack();
 }
