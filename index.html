@@ -152,7 +152,7 @@ td.route{font-family:var(--mono);font-size:.8rem;word-break:break-word;margin:0}
   <div class="row" id="pinRow"></div>
   <div class="row">
     <select id="chApt" aria-label="Airport"></select>
-    <input id="chQ" placeholder="Filter charts (ILS, RNAV, procedure name)" style="flex:1;min-width:200px" aria-label="Filter charts">
+    <input id="chQ" autocomplete="off" placeholder="Filter charts (ILS, RNAV, procedure name)" style="flex:1;min-width:200px" aria-label="Filter charts">
     <span class="none" id="chCyc"></span>
     <button class="ghost" id="chReload">Reload list</button>
   </div>
@@ -437,11 +437,12 @@ function faaCycle(d){
   return String(y%100).padStart(2,'0')+String((eff-first)/(28*DAY)+1).padStart(2,'0');
 }
 const WK=()=>(store.get('fd_wk')||'').trim().replace(/\/$/,'');
-let faaText=null,faaP=null;const chCache={};let chList=[];
+let faaText=null,faaP=null,faaCyc='';const chCache={};let chList=[];
 async function faaList(icao){
   const cyc=faaCycle(),key='fd_ch2_'+cyc+'_'+icao;
   if(chCache[key])return chCache[key];
   const c=store.get(key);if(c)return chCache[key]=JSON.parse(c);
+  if(faaCyc!==cyc){faaText=null;faaCyc=cyc}
   if(!faaText){
     const path='/d-tpp/'+cyc+'/xml_data/d-tpp_Metafile.xml';
     faaP=faaP||(async()=>{
@@ -484,10 +485,10 @@ function drawChartSel(){
   sel.innerHTML='<option value="">Select a chart ('+f.length+')</option>'+codes.map(c=>`<optgroup label="${esc(CH_TYPES[c]||'Other')}">`+by[c].map(x=>`<option value="${esc(x.p)}">${esc(x.n)}</option>`).join('')+'</optgroup>').join('');
   renderPins();
 }
-$('wkUrl').value=store.get('fd_wk')||'';
+$('wkUrl').value=store.get('fd_wk')||'';$('chQ').value='';
 $('wkSave').onclick=()=>{store.set('fd_wk',$('wkUrl').value.trim());faaText=null;loadCharts()};
 $('chReload').onclick=()=>{const ic=$('chApt').value,k='fd_ch2_'+faaCycle()+'_'+ic;delete chCache[k];try{localStorage.removeItem(k)}catch(e){}faaText=null;loadCharts()};
-$('chApt').onchange=()=>{loadCharts();renderPins()};$('chQ').oninput=drawChartSel;
+$('chApt').onchange=()=>{$('chQ').value='';loadCharts();renderPins()};$('chQ').oninput=drawChartSel;
 function openChart(p){const fr=$('chFrame');if(!p){fr.hidden=true;return}fr.hidden=false;fr.src=(WK()||'https://aeronav.faa.gov')+'/d-tpp/'+faaCycle()+'/'+encodeURIComponent(p)+'#view=FitH'}
 let pins=[];try{pins=JSON.parse(store.get('fd_pins')||'[]')}catch(e){}
 const savePins=()=>store.set('fd_pins',JSON.stringify(pins));
