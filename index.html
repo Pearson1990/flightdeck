@@ -186,6 +186,7 @@ td.route{font-family:var(--mono);font-size:.8rem;word-break:break-word;margin:0}
   </div>
   <div class="row"><select id="chSel" aria-label="Chart" style="flex:1;min-width:260px"></select></div>
   <div id="chMsg" class="note"></div>
+  <details style="margin:8px 0"><summary>Chart proxy (your Cloudflare Worker URL)</summary><div class="row" style="margin-top:8px"><input id="wkUrl" placeholder="https://flightdeck-charts.yourname.workers.dev" style="flex:1;min-width:240px" aria-label="Worker URL"><button id="wkSave">Save</button></div></details>
   <iframe id="chFrame" class="frame" title="FAA chart" style="height:80vh;background:#fff" hidden></iframe>
   <p class="note">FAA digital Terminal Procedures (d-TPP) for US airports. Charts update every 28 days. For simulation use only.</p>
 </section>
@@ -574,13 +575,15 @@ function faaCycle(d){
   while(new Date(first-28*DAY).getUTCFullYear()===y)first-=28*DAY;
   return String(y%100).padStart(2,'0')+String((eff-first)/(28*DAY)+1).padStart(2,'0');
 }
+const WK=()=>(store.get('fd_wk')||'').trim().replace(/\/$/,'');
 let faaText=null;const chCache={};let chList=[];
 async function faaList(icao){
   const cyc=faaCycle(),key='fd_ch_'+cyc+'_'+icao;
   if(chCache[key])return chCache[key];
   const c=store.get(key);if(c)return chCache[key]=JSON.parse(c);
   if(!faaText){
-    faaText=await net('https://aeronav.faa.gov/d-tpp/'+cyc+'/xml_data/d-tpp_Metafile.xml');
+    const path='/d-tpp/'+cyc+'/xml_data/d-tpp_Metafile.xml';
+    faaText=WK()?await(await fetch(WK()+path)).text():await net('https://aeronav.faa.gov'+path);
     if(!faaText.includes('<airport_name')){faaText=null;throw new Error('unexpected response')}
   }
   let list=[];const i=faaText.indexOf('icao_ident="'+icao+'"');
@@ -613,8 +616,10 @@ function drawChartSel(){
   const codes=[...CH_ORD.filter(c=>by[c]),...Object.keys(by).filter(c=>!CH_ORD.includes(c))];
   sel.innerHTML='<option value="">Select a chart ('+f.length+')</option>'+codes.map(c=>`<optgroup label="${esc(CH_TYPES[c]||'Other')}">`+by[c].map(x=>`<option value="${esc(x.p)}">${esc(x.n)}</option>`).join('')+'</optgroup>').join('');
 }
+$('wkUrl').value=store.get('fd_wk')||'';
+$('wkSave').onclick=()=>{store.set('fd_wk',$('wkUrl').value.trim());faaText=null;loadCharts()};
 $('chApt').onchange=loadCharts;$('chQ').oninput=drawChartSel;
-$('chSel').onchange=()=>{const p=$('chSel').value,fr=$('chFrame');if(!p){fr.hidden=true;return}fr.hidden=false;fr.src='https://aeronav.faa.gov/d-tpp/'+faaCycle()+'/'+encodeURIComponent(p)+'#view=FitH'};
+$('chSel').onchange=()=>{const p=$('chSel').value,fr=$('chFrame');if(!p){fr.hidden=true;return}fr.hidden=false;fr.src=(WK()||'https://aeronav.faa.gov')+'/d-tpp/'+faaCycle()+'/'+encodeURIComponent(p)+'#view=FitH'};
 
 $('src').value=SRC;
 $('src').onchange=()=>{SRC=$('src').value;store.set('fd_src',SRC);vCache.t=0;loadWx()};
