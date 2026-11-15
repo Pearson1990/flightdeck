@@ -76,6 +76,10 @@ th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
 th{color:var(--mute);font-weight:500}
 .frame{width:100%;height:62vh;min-height:360px;border:1px solid var(--line);border-radius:8px;background:var(--panel);margin-top:12px}
 .leaflet-container{font-family:var(--ui)}
+.sec{border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin-top:10px}
+.sec h4{margin:0 0 8px;font-size:1rem}
+.cells{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px 14px}
+.cells span{display:block;color:var(--mute);font-size:.85rem}
 .dark-map .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) saturate(.5) brightness(.85) contrast(.9)}
 tr.mine td:first-child{box-shadow:inset 4px 0 var(--route)}
 td.route{font-family:var(--mono);font-size:.8rem;word-break:break-word;margin:0}
@@ -111,6 +115,8 @@ td.route{font-family:var(--mono);font-size:.8rem;word-break:break-word;margin:0}
     <a id="sbEdit" href="https://dispatch.simbrief.com/home" target="_blank" rel="noopener">Edit in SimBrief</a>
   </div>
   <div class="route" id="sRoute">Load a SimBrief plan or enter a flight below.</div>
+  <details id="dData" hidden><summary>Flight plan data</summary><div id="dBody"></div></details>
+  <details id="dOfp" hidden><summary>Full OFP</summary><iframe id="ofpFrame" class="frame" sandbox title="SimBrief OFP" style="height:75vh;background:#fff"></iframe></details>
   <details>
     <summary>Enter or edit flight manually (for vAMSYS dispatch)</summary>
     <div class="manual">
@@ -148,7 +154,7 @@ td.route{font-family:var(--mono);font-size:.8rem;word-break:break-word;margin:0}
   <div class="row">
     <input id="trkCs" placeholder="Callsign" aria-label="Callsign to track">
     <button id="trkGo">Find my flight</button>
-    <button class="ghost" id="followBtn" aria-pressed="true">Follow: on</button>
+    <button class="ghost" id="followBtn" aria-pressed="false">Follow: off</button>
     <span class="none" id="mapCount"></span><span class="err" id="mapErr"></span>
   </div>
   <div class="card" id="trkOut"><span class="none">Enter a callsign to find your aircraft. Your planned route is drawn in magenta.</span></div>
@@ -210,7 +216,7 @@ function render(){
   $('mAc').value=S.ac||'';$('mFl').value=S.fl||'';$('mRoute').value=S.route||'';
   $('trkCs').value=S.cs||'';$('rOrg').value=S.dep||'';$('rDst').value=S.arr||'';
   $('rPlan').textContent=S.route?`${S.dep} ${S.route} ${S.arr}`:'-';
-  updateEdit();faUpdate();drawRoute();loadWx();
+  updateEdit();renderPlan();faUpdate();drawRoute();loadWx();
 }
 $('mApply').onclick=()=>{
   S={cs:$('mCs').value.trim().toUpperCase(),dep:$('mDep').value.trim().toUpperCase(),arr:$('mArr').value.trim().toUpperCase(),
@@ -228,6 +234,30 @@ async function net(u){
 
 /* SimBrief */
 $('sbUser').value=store.get('fd_sb')||'';
+function ofpData(j){
+  const g=(o,p)=>p.split('.').reduce((a,k)=>a==null?a:a[k],o),A=x=>[].concat(x||[]),u=' '+((j.params&&j.params.units)||''),
+    f=(v,s)=>v==null||v===''?'-':(isNaN(v)?v:(+v).toLocaleString())+(s||''),
+    t=v=>{v=+v;return v>0?new Date(v*1000).toISOString().substr(11,8):'-'};
+  const tk=g(j,'tlr.takeoff.conditions')||{},ld=g(j,'tlr.landing.conditions')||{};
+  const tr=A(g(j,'tlr.takeoff.runway')).find(r=>r.identifier===tk.planned_runway)||{};
+  const lr=A(g(j,'tlr.landing.runway')).find(r=>r.identifier===ld.planned_runway)||{};
+  const w=j.weights||{},tm=j.times||{},ge=j.general||{};
+  const sur=c=>c.surface_condition?' '+String(c.surface_condition).charAt(0).toUpperCase()+String(c.surface_condition).slice(1).toLowerCase():'';
+  const hw=r=>r.headwind_component!=null?r.headwind_component+' | '+Math.abs(r.crosswind_component):'-';
+  return [
+   {t:'Runway',r:[['Departure','RWY '+(tk.planned_runway||'-')+sur(tk)],['Headwind | Crosswind',hw(tr)],['Arrival','RWY '+(ld.planned_runway||'-')+sur(ld)],['Headwind | Crosswind',hw(lr)]]},
+   {t:'TLR',r:[['Flaps',tr.flap_setting],['De-rate',tr.thrust_setting],['Temp',tr.flex_temperature||tr.max_temperature],['V1',tr.speeds_v1],['VR',tr.speeds_vr],['V2',tr.speeds_v2],['Bleeds',tr.bleed_setting],['Anti-ice',tr.anti_ice_setting]]},
+   {t:'Performance',r:[['Cruise profile',ge.cruise_profile],['Climb profile',ge.climb_profile],['Descent profile',ge.descent_profile]]},
+   {t:'Weight',r:[['Estimated ZFW',f(w.est_zfw,u)],['OEW',f(w.oew,u)],['Cargo',f(w.cargo,u)],['Payload',f(w.payload,u)],['Max ZFW',f(w.max_zfw,u)],['Estimated TOW',f(w.est_tow,u)],['Max TOW',f(w.max_tow,u)],['Estimated LDW',f(w.est_ldw,u)],['Max LDW',f(w.max_ldw,u)],['Estimated ramp',f(g(j,'fuel.plan_ramp'),u)]]},
+   {t:'Speed, time, altitude and distance',r:[['Estimated enroute',t(tm.est_time_enroute)],['Scheduled enroute',t(tm.sched_time_enroute)],['Scheduled block',t(tm.sched_block)],['Estimated block',t(tm.est_block)],['Endurance',t(tm.endurance)],['Cruise TAS',ge.cruise_tas],['Cruise Mach',ge.cruise_mach],['Dep transition alt',g(j,'origin.trans_alt')],['Arr transition lvl',g(j,'destination.trans_level')],['Flight level',ge.initial_altitude?'FL'+Math.round(ge.initial_altitude/100):'-'],['Avg temp deviation',ge.avg_temp_dev],['Wind component',ge.avg_wind_comp],['Wind direction',ge.avg_wind_dir],['Wind speed',ge.avg_wind_spd],['Air distance',ge.air_distance]]}
+  ];
+}
+function renderPlan(){
+  $('dBody').innerHTML=(S.sec||[]).map(x=>`<div class="sec"><h4>${esc(x.t)}</h4><div class="cells">${x.r.map(([l,v])=>`<div><span>${esc(l)}</span>${esc(v==null||v===''?'-':v)}</div>`).join('')}</div></div>`).join('');
+  $('dData').hidden=!(S.sec&&S.sec.length);
+  $('dOfp').hidden=!S.ofp;
+  if(S.ofp)$('ofpFrame').srcdoc='<!doctype html><meta charset="utf-8"><style>body{margin:12px;background:#fff;color:#000}</style>'+S.ofp;
+}
 function updateEdit(){$('sbEdit').href='https://dispatch.simbrief.com/home'}
 $('sbLoad').onclick=async()=>{
   const u=$('sbUser').value.trim();if(!u)return;
@@ -241,7 +271,7 @@ $('sbLoad').onclick=async()=>{
     S={cs:(j.atc&&j.atc.callsign)||((j.general.icao_airline||'')+(j.general.flight_number||'')),
        dep:j.origin.icao_code,arr:j.destination.icao_code,alt:(alt&&alt.icao_code)||'',
        ac:j.aircraft.icaocode,fl:j.general.initial_altitude?'FL'+Math.round(j.general.initial_altitude/100):'',
-       route:j.general.route,
+       route:j.general.route,sec:ofpData(j),ofp:(j.text&&j.text.plan_html)||'',
        pts:fx.map(f=>[+f.pos_lat,+f.pos_long]).filter(x=>isFinite(x[0])&&isFinite(x[1]))};
     $('sStatus').textContent='';save();render();
   }catch(e){$('sStatus').innerHTML='<span class="err">Could not load plan: '+esc(e.message)+'.</span>'}
@@ -286,7 +316,7 @@ async function loadWx(){
   const list=airports(),g=$('wxGrid');
   if(!list.length){g.innerHTML='<div class="card none">No airports yet. Load a flight or add an ICAO above.</div>';return}
   g.innerHTML=list.map(([i,r])=>`<div class="card" id="wx-${esc(i)}"><h3><span>${esc(i)} <span class="role">${r}</span></span></h3><span class="none">Loading…</span></div>`).join('');
-  let v=null;if(SRC==='vatsim'){try{v=await vatsim()}catch(e){}}
+  let v=null;try{v=await vatsim()}catch(e){}
   list.forEach(async([icao,role])=>{
     const el=$('wx-'+icao);let html='';
     try{
@@ -306,7 +336,10 @@ async function loadWx(){
         at=a.length?a.map(x=>`<div class="hd"><span class="letter">${esc(x.atis_code||'?')}</span><span>${esc(x.callsign)} ${esc(x.frequency)}</span></div><p>${esc((x.text_atis||[]).join(' '))}</p>`).join('')
           :'<span class="none">No VATSIM ATIS online.</span>';}
     }else at=await realAtis(icao);
-    el.innerHTML=html+`<div class="atis">${at}</div><div class="atis" id="taf-${esc(icao)}"></div>`;taf(icao);
+    const code=/^K[A-Z0-9]{3}$/.test(icao)?icao.slice(1):icao;
+    const cs=v?v.controllers.filter(c=>(c.callsign.startsWith(icao+'_')||c.callsign.startsWith(code+'_'))&&!/_(ATIS|OBS)$/.test(c.callsign)):[];
+    const atc=v?(cs.length?cs.map(c=>esc(c.callsign.split('_').pop()+' '+c.frequency)).join(', '):'None online'):'Unavailable';
+    el.innerHTML=html+`<div class="atis">${at}</div><div class="atis"><div class="hd">VATSIM ATC</div><p>${atc}</p><p id="ctaf-${esc(icao)}"></p></div><div class="atis" id="taf-${esc(icao)}"></div>`;taf(icao);ctaf(icao);
   });
 }
 $('wxRefresh').onclick=()=>{vCache.t=0;loadWx()};
@@ -320,6 +353,18 @@ async function realAtis(icao){
     return j.map(x=>`<div class="hd"><span class="letter">${esc(x.code||'?')}</span><span>${esc(x.type||'ATIS')}</span></div><p>${esc(x.datis)}</p>`).join('');
   }catch(e){return '<span class="none">Real-world ATIS unavailable for '+esc(icao)+'.</span>'}
 }
+function csvLine(l){const o=[];let c='',q=false;for(const ch of l){if(ch==='"')q=!q;else if(ch===','&&!q){o.push(c);c=''}else c+=ch}o.push(c);return o}
+let freqDb=null;
+async function ctaf(icao){
+  const el=$('ctaf-'+icao);if(!el)return;
+  let txt='No CTAF published. UNICOM 122.800 is the VATSIM default.';
+  try{
+    if(!freqDb){const t=await net('https://raw.githubusercontent.com/davidmegginson/ourairports-data/main/airport-frequencies.csv');
+      freqDb=new Map();t.split(/\r?\n/).slice(1).forEach(l=>{const c=csvLine(l);if(/^(CTAF|UNIC)$/i.test(c[3]))freqDb.set(c[2],(freqDb.get(c[2])||[]).concat(c[5]))})}
+    const f=freqDb.get(icao);if(f)txt='CTAF '+[...new Set(f)].join(', ')+' (published)';
+  }catch(e){}
+  el.textContent=txt;
+}
 async function taf(icao){
   const el=$('taf-'+icao);if(!el)return;
   try{const t=(await net('https://aviationweather.gov/api/data/taf?ids='+icao)).trim();
@@ -327,7 +372,7 @@ async function taf(icao){
 }
 
 /* Live map */
-let map=null,traffic,routeLayer,tiles,mapTimer,follow=true,TrafficLayer=null;
+let map=null,traffic,routeLayer,tiles,mapTimer,follow=false,TrafficLayer=null;
 const cssv=n=>getComputedStyle(root).getPropertyValue(n).trim();
 const isDark=()=>root.dataset.theme?root.dataset.theme==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
 const PLANE=typeof Path2D!=='undefined'?new Path2D('M0 -10 L1.6 -6 L1.6 -2 L9 2 L9 4 L1.6 2 L1.5 7 L4 9 L4 10.5 L0 9.5 L-4 10.5 L-4 9 L-1.5 7 L-1.6 2 L-9 4 L-9 2 L-1.6 -2 L-1.6 -6 Z'):null;
@@ -504,7 +549,7 @@ $('bList').onclick=e=>{
   if(l!=null){S=board[l];save();render();drawRoute(true)}
   if(d!=null){board.splice(d,1);store.set('fd_board',JSON.stringify(board));renderBoard()}
 };
-$('bSave').onclick=()=>{if(!S.dep||!S.arr)return;board.unshift(Object.assign({},S));board=board.slice(0,30);store.set('fd_board',JSON.stringify(board));renderBoard()};
+$('bSave').onclick=()=>{if(!S.dep||!S.arr)return;const c=Object.assign({},S);delete c.ofp;board.unshift(c);board=board.slice(0,30);store.set('fd_board',JSON.stringify(board));renderBoard()};
 
 $('src').value=SRC;
 $('src').onchange=()=>{SRC=$('src').value;store.set('fd_src',SRC);vCache.t=0;loadWx()};
