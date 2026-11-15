@@ -4,8 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Flightdeck</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -75,12 +73,11 @@ table{width:100%;border-collapse:collapse;font-size:.95rem}
 th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
 th{color:var(--mute);font-weight:500}
 .frame{width:100%;height:62vh;min-height:360px;border:1px solid var(--line);border-radius:8px;background:var(--panel);margin-top:12px}
-.leaflet-container{font-family:var(--ui)}
+.pin{display:inline-flex}.pin button:first-child{border-radius:6px 0 0 6px}.pin button:last-child{border-radius:0 6px 6px 0;border-left:0;padding:8px 10px}
 .sec{border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin-top:10px}
 .sec h4{margin:0 0 8px;font-size:1rem}
 .cells{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px 14px}
 .cells span{display:block;color:var(--mute);font-size:.85rem}
-.dark-map .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) saturate(.5) brightness(.85) contrast(.9)}
 tr.mine td:first-child{box-shadow:inset 4px 0 var(--route)}
 td.route{font-family:var(--mono);font-size:.8rem;word-break:break-word;margin:0}
 .links{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
@@ -134,9 +131,8 @@ td.route{font-family:var(--mono);font-size:.8rem;word-break:break-word;margin:0}
 
 <nav role="tablist">
   <button role="tab" data-tab="wx" aria-selected="true">Weather and ATIS</button>
-  <button role="tab" data-tab="trk" aria-selected="false">Tracker</button>
-  <button role="tab" data-tab="rte" aria-selected="false">Route analysis</button>
   <button role="tab" data-tab="chr" aria-selected="false">Charts</button>
+  <button role="tab" data-tab="rte" aria-selected="false">Route analysis</button>
   <button role="tab" data-tab="va" aria-selected="false">Saved flights</button>
 </nav>
 
@@ -151,16 +147,19 @@ td.route{font-family:var(--mono);font-size:.8rem;word-break:break-word;margin:0}
   <p class="note">Real-world mode shows current METARs, TAFs and D-ATIS. D-ATIS covers mainly US airports. VATSIM mode shows the network’s METAR and any online VATSIM ATIS; TAFs are always real-world.</p>
 </section>
 
-<section id="tab-trk" hidden>
+
+<section id="tab-chr" hidden>
+  <div class="row" id="pinRow"></div>
   <div class="row">
-    <input id="trkCs" placeholder="Callsign" aria-label="Callsign to track">
-    <button id="trkGo">Find my flight</button>
-    <button class="ghost" id="followBtn" aria-pressed="false">Follow: off</button>
-    <span class="none" id="mapCount"></span><span class="err" id="mapErr"></span>
+    <select id="chApt" aria-label="Airport"></select>
+    <input id="chQ" placeholder="Filter charts (ILS, RNAV, procedure name)" style="flex:1;min-width:200px" aria-label="Filter charts">
+    <span class="none" id="chCyc"></span>
   </div>
-  <div class="card" id="trkOut"><span class="none">Enter a callsign to find your aircraft. Your planned route is drawn in magenta.</span></div>
-  <div id="map" class="frame" role="img" aria-label="Live VATSIM traffic map"></div>
-  <p class="note">Blue triangles are other VATSIM pilots, pointing the way they are heading. Your aircraft is the magenta one. Click any aircraft for details. Refreshes every 15 seconds.</p>
+  <div class="row"><select id="chSel" aria-label="Chart" style="flex:1;min-width:260px"></select><button class="ghost" id="chPin">Pin</button></div>
+  <div id="chMsg" class="note"></div>
+  <details style="margin:8px 0"><summary>Chart proxy (your Cloudflare Worker URL)</summary><div class="row" style="margin-top:8px"><input id="wkUrl" placeholder="https://flightdeck-charts.yourname.workers.dev" style="flex:1;min-width:240px" aria-label="Worker URL"><button id="wkSave">Save</button></div></details>
+  <iframe id="chFrame" class="frame" title="FAA chart" style="height:80vh;background:#fff" hidden></iframe>
+  <p class="note">FAA digital Terminal Procedures (d-TPP) for US airports. Charts update every 28 days. For simulation use only.</p>
 </section>
 
 <section id="tab-rte" hidden>
@@ -178,18 +177,6 @@ td.route{font-family:var(--mono);font-size:.8rem;word-break:break-word;margin:0}
   <p class="note">For real-world filed routes and altitudes, use Open in FlightAware. The VATSIM list is a snapshot of simulator plans on the network right now.</p>
 </section>
 
-<section id="tab-chr" hidden>
-  <div class="row">
-    <select id="chApt" aria-label="Airport"></select>
-    <input id="chQ" placeholder="Filter charts (ILS, RNAV, procedure name)" style="flex:1;min-width:200px" aria-label="Filter charts">
-    <span class="none" id="chCyc"></span>
-  </div>
-  <div class="row"><select id="chSel" aria-label="Chart" style="flex:1;min-width:260px"></select></div>
-  <div id="chMsg" class="note"></div>
-  <details style="margin:8px 0"><summary>Chart proxy (your Cloudflare Worker URL)</summary><div class="row" style="margin-top:8px"><input id="wkUrl" placeholder="https://flightdeck-charts.yourname.workers.dev" style="flex:1;min-width:240px" aria-label="Worker URL"><button id="wkSave">Save</button></div></details>
-  <iframe id="chFrame" class="frame" title="FAA chart" style="height:80vh;background:#fff" hidden></iframe>
-  <p class="note">FAA digital Terminal Procedures (d-TPP) for US airports. Charts update every 28 days. For simulation use only.</p>
-</section>
 
 <section id="tab-va" hidden>
   <div class="row"><button id="bSave">Save current flight</button></div>
@@ -210,13 +197,13 @@ let SRC=store.get('fd_src')==='vatsim'?'vatsim':'real';
 const root=document.documentElement;
 if(store.get('fd_theme'))root.dataset.theme=store.get('fd_theme');
 $('theme').onclick=()=>{const dark=root.dataset.theme?root.dataset.theme==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
-  root.dataset.theme=dark?'light':'dark';store.set('fd_theme',root.dataset.theme);setTiles()};
+  root.dataset.theme=dark?'light':'dark';store.set('fd_theme',root.dataset.theme)};
 
 /* tabs */
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('nav button').forEach(x=>x.setAttribute('aria-selected',x===b));
-  ['wx','trk','rte','chr','va'].forEach(t=>$('tab-'+t).hidden=t!==b.dataset.tab);
-  if(b.dataset.tab==='trk')initMap();if(b.dataset.tab==='rte')analyze();if(b.dataset.tab==='chr'){fillChartApts();loadCharts()}
+  ['wx','chr','rte','va'].forEach(t=>$('tab-'+t).hidden=t!==b.dataset.tab);
+  if(b.dataset.tab==='rte')analyze();if(b.dataset.tab==='chr'){fillChartApts();loadCharts();renderPins()}
 });
 
 /* flight state */
@@ -228,9 +215,9 @@ function render(){
   $('sRoute').textContent=S.route?`${S.dep} ${S.route} ${S.arr}`:'Load a SimBrief plan or enter a flight below.';
   $('mCs').value=S.cs||'';$('mDep').value=S.dep||'';$('mArr').value=S.arr||'';$('mAlt').value=S.alt||'';
   $('mAc').value=S.ac||'';$('mFl').value=S.fl||'';$('mRoute').value=S.route||'';
-  $('trkCs').value=S.cs||'';$('rOrg').value=S.dep||'';$('rDst').value=S.arr||'';
+$('rOrg').value=S.dep||'';$('rDst').value=S.arr||'';
   $('rPlan').textContent=S.route?`${S.dep} ${S.route} ${S.arr}`:'-';
-  updateEdit();renderPlan();faUpdate();drawRoute();loadWx();
+  updateEdit();renderPlan();faUpdate();loadWx();
 }
 $('mApply').onclick=()=>{
   S={cs:$('mCs').value.trim().toUpperCase(),dep:$('mDep').value.trim().toUpperCase(),arr:$('mArr').value.trim().toUpperCase(),
@@ -281,13 +268,11 @@ $('sbLoad').onclick=async()=>{
     let j;try{j=JSON.parse(await net('https://www.simbrief.com/api/xml.fetcher.php?'+q+'&json=1'))}catch(e){throw new Error('SimBrief returned no plan data. Check the username or Pilot ID')}
     if(j.fetch&&j.fetch.status&&j.fetch.status!=='Success')throw new Error(j.fetch.status);
     const alt=Array.isArray(j.alternate)?j.alternate[0]:j.alternate;
-    const fx=j.navlog&&j.navlog.fix?[].concat(j.navlog.fix):[];
     S={cs:(j.atc&&j.atc.callsign)||((j.general.icao_airline||'')+(j.general.flight_number||'')),
        dep:j.origin.icao_code,arr:j.destination.icao_code,alt:(alt&&alt.icao_code)||'',
        ac:j.aircraft.icaocode,fl:j.general.initial_altitude?'FL'+Math.round(j.general.initial_altitude/100):'',
-       route:j.general.route,sec:ofpData(j),ofp:(j.text&&j.text.plan_html)||'',
-       pts:fx.map(f=>[+f.pos_lat,+f.pos_long]).filter(x=>isFinite(x[0])&&isFinite(x[1]))};
-    $('sStatus').textContent='';save();render();
+       route:j.general.route,sec:ofpData(j),ofp:(j.text&&j.text.plan_html)||'',sid:j.general.sid_ident||'',star:j.general.star_ident||''};
+    $('sStatus').textContent='';save();render();autoPin();
   }catch(e){$('sStatus').innerHTML='<span class="err">Could not load plan: '+esc(e.message)+'.</span>'}
 };
 
@@ -388,132 +373,7 @@ async function taf(icao){
     if(t&&!/<html/i.test(t)&&t.length<1500)el.innerHTML='<div class="hd">TAF</div><p>'+esc(t)+'</p>';else el.remove()}catch(e){el.remove()}
 }
 
-/* Live map */
-let map=null,traffic,routeLayer,tiles,mapTimer,follow=false,TrafficLayer=null;
-const cssv=n=>getComputedStyle(root).getPropertyValue(n).trim();
-const isDark=()=>root.dataset.theme?root.dataset.theme==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
-const PLANE=typeof Path2D!=='undefined'?new Path2D('M0 -10 L1.6 -6 L1.6 -2 L9 2 L9 4 L1.6 2 L1.5 7 L4 9 L4 10.5 L0 9.5 L-4 10.5 L-4 9 L-1.5 7 L-1.6 2 L-9 4 L-9 2 L-1.6 -2 L-1.6 -6 Z'):null;
-function setTiles(){
-  if(!map)return;if(tiles)map.removeLayer(tiles);
-  $('map').classList.toggle('dark-map',isDark());
-  tiles=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    {attribution:'&copy; OpenStreetMap contributors',maxZoom:12}).addTo(map);
-  tiles.on('tileerror',()=>{$('mapErr').textContent='Map tiles could not load. An ad blocker or network filter may be blocking tile.openstreetmap.org.'});
-  tiles.on('tileload',()=>{$('mapErr').textContent=''});
-  tiles.bringToBack();
-  if(traffic)traffic.draw();
-}
-function makeTraffic(){
-  if(TrafficLayer)return TrafficLayer;
-  TrafficLayer=L.Layer.extend({
-    initialize(){this.pilots=[];this.me=''},
-    onAdd(m){
-      this._m=m;const c=this._c=L.DomUtil.create('canvas','leaflet-zoom-hide');
-      c.style.position='absolute';c.style.left='0';c.style.top='0';c.style.pointerEvents='none';
-      m.getPane('traffic').appendChild(c);m.on('move resize zoomend',this.draw,this);this.draw();
-    },
-    onRemove(m){L.DomUtil.remove(this._c);m.off('move resize zoomend',this.draw,this)},
-    draw(){
-      const m=this._m;if(!m)return;const s=m.getSize(),c=this._c;
-      L.DomUtil.setPosition(c,m.containerPointToLayerPoint([0,0]));
-      if(c.width!==s.x)c.width=s.x;if(c.height!==s.y)c.height=s.y;
-      const x=c.getContext('2d');x.clearRect(0,0,s.x,s.y);
-      const blue=cssv('--mvfr'),mag=cssv('--route'),b=m.getBounds().pad(.05);let me=null;
-      x.fillStyle=blue;x.globalAlpha=.85;
-      for(const p of this.pilots){
-        if(p.callsign===this.me){me=p;continue}
-        if(!b.contains([p.latitude,p.longitude]))continue;
-        const q=m.latLngToContainerPoint([p.latitude,p.longitude]);
-        x.save();x.translate(q.x,q.y);x.rotate(p.heading*Math.PI/180);
-        x.beginPath();x.moveTo(0,-5);x.lineTo(3.5,4);x.lineTo(-3.5,4);x.closePath();x.fill();x.restore();
-      }
-      x.globalAlpha=1;
-      if(me&&PLANE){
-        const q=m.latLngToContainerPoint([me.latitude,me.longitude]);
-        x.save();x.translate(q.x,q.y);x.rotate(me.heading*Math.PI/180);x.scale(1.6,1.6);
-        x.fillStyle=mag;x.strokeStyle='#fff';x.lineWidth=1;x.fill(PLANE);x.stroke(PLANE);x.restore();
-      }
-    }
-  });
-  return TrafficLayer;
-}
-function initMap(){
-  if(typeof L==='undefined'){$('map').innerHTML='<p class="err" style="padding:16px">The map library did not load from cdn.jsdelivr.net. Check your connection or ad blocker, then reload.</p>';return}
-  if(!map){
-    map=L.map('map',{worldCopyJump:true}).setView([39,-40],3);
-    map.createPane('traffic').style.zIndex=450;
-    routeLayer=L.layerGroup().addTo(map);
-    traffic=new (makeTraffic())().addTo(map);
-    setTiles();drawRoute(true);
-    map.on('dragstart',()=>setFollow(false));
-    map.on('click',e=>{
-      let best=null,bd=14;
-      for(const p of traffic.pilots){const q=map.latLngToContainerPoint([p.latitude,p.longitude]);const dd=Math.hypot(q.x-e.containerPoint.x,q.y-e.containerPoint.y);if(dd<bd){bd=dd;best=p}}
-      if(best){const fp=best.flight_plan||{};
-        L.popup().setLatLng([best.latitude,best.longitude]).setContent(`<b>${esc(best.callsign)}</b><br>${esc(fp.departure||'?')} to ${esc(fp.arrival||'?')}<br>${best.altitude.toLocaleString()} ft, ${best.groundspeed} kt, hdg ${best.heading}°`).openOn(map)}
-    });
-  }
-  setTimeout(()=>map.invalidateSize(),50);
-  drawTraffic();clearInterval(mapTimer);
-  mapTimer=setInterval(()=>{if(!$('tab-trk').hidden){vCache.t=0;drawTraffic()}},15000);
-}
-window.addEventListener('resize',()=>{if(map)map.invalidateSize()});
-function drawRoute(fit){
-  if(!map)return;routeLayer.clearLayers();
-  if(S.pts&&S.pts.length>1){
-    const c=cssv('--route'),ln=L.polyline(S.pts,{color:c,weight:3}).addTo(routeLayer);
-    [[S.pts[0],S.dep],[S.pts[S.pts.length-1],S.arr]].forEach(([pt,n])=>L.circleMarker(pt,{radius:5,color:c,fillColor:c,fillOpacity:1}).bindTooltip(n||'',{permanent:true,direction:'top'}).addTo(routeLayer));
-    if(fit)map.fitBounds(ln.getBounds(),{padding:[30,30]});
-  }
-}
-function setFollow(on){
-  follow=on;$('followBtn').textContent='Follow: '+(on?'on':'off');$('followBtn').setAttribute('aria-pressed',on);
-}
-$('followBtn').onclick=()=>{setFollow(!follow);if(follow){vCache.t=0;drawTraffic(true)}};
 
-/* Route progress */
-const RNM=3440.065;
-function nm(a,b){const t=Math.PI/180,dl=(b[0]-a[0])*t,dn=(b[1]-a[1])*t,x=Math.sin(dl/2)**2+Math.cos(a[0]*t)*Math.cos(b[0]*t)*Math.sin(dn/2)**2;return 2*RNM*Math.asin(Math.sqrt(x))}
-function progress(p){
-  const pts=S.pts;if(!pts||pts.length<2)return null;
-  const me=[p.latitude,p.longitude],cum=[0];
-  for(let i=1;i<pts.length;i++)cum[i]=cum[i-1]+nm(pts[i-1],pts[i]);
-  const total=cum[cum.length-1],k=Math.cos(me[0]*Math.PI/180);let best={off:1e9,along:0};
-  for(let i=0;i<pts.length-1;i++){
-    const ax=(pts[i][1]-me[1])*k,ay=pts[i][0]-me[0],bx=(pts[i+1][1]-me[1])*k,by=pts[i+1][0]-me[0];
-    const dx=bx-ax,dy=by-ay,d2=dx*dx+dy*dy;
-    const t=d2?Math.max(0,Math.min(1,-(ax*dx+ay*dy)/d2)):0;
-    const off=Math.hypot(ax+t*dx,ay+t*dy)*60;
-    if(off<best.off)best={off,along:cum[i]+t*(cum[i+1]-cum[i])};
-  }
-  return {total,rem:Math.max(0,total-best.along),off:best.off};
-}
-const hm=h=>Math.floor(h)+'h '+String(Math.round((h%1)*60)).padStart(2,'0')+'m';
-
-async function drawTraffic(center){
-  if(!map)return;
-  try{
-    const d=await vatsim(),me=$('trkCs').value.trim().toUpperCase();
-    traffic.pilots=d.pilots;traffic.me=me;traffic.draw();
-    const mine=d.pilots.find(p=>p.callsign===me)||null;
-    $('mapCount').textContent=d.pilots.length+' pilots online';
-    showMine(mine,me);
-    if(mine&&(center===true||follow))map.setView([mine.latitude,mine.longitude],center===true?Math.max(map.getZoom(),6):map.getZoom(),{animate:true});
-  }catch(e){$('mapCount').innerHTML='<span class="err">Could not reach the VATSIM data feed.</span>'}
-}
-function showMine(p,cs){
-  const out=$('trkOut');if(!cs)return;
-  if(!p){out.innerHTML=`<span class="none">${esc(cs)} is not connected to VATSIM right now.</span>`;return}
-  const fp=p.flight_plan||{},g=progress(p);let pr='<p class="note" style="margin:10px 0 0">Load a SimBrief plan to see route progress.</p>';
-  if(g){
-    const pct=g.total?Math.round(100*(1-g.rem/g.total)):0;
-    pr=`<div style="height:6px;background:var(--line);border-radius:3px;margin-top:12px"><div style="height:100%;width:${pct}%;background:var(--route);border-radius:3px"></div></div>
-      <p style="margin:6px 0 0">${Math.round(g.rem).toLocaleString()} nm remaining of ${Math.round(g.total).toLocaleString()} nm, ${pct}% flown${p.groundspeed>40?'. About '+hm(g.rem/p.groundspeed)+' at '+p.groundspeed+' kt':''}.${g.off>5?' <span class="err">'+Math.round(g.off)+' nm off the planned route.</span>':''}</p>`;
-  }
-  out.innerHTML=`<table><tr><th>Callsign</th><th>Route</th><th>Altitude</th><th>Ground speed</th><th>Heading</th></tr>
-    <tr><td>${esc(p.callsign)}</td><td>${esc(fp.departure||'?')} to ${esc(fp.arrival||'?')}</td><td>${p.altitude.toLocaleString()} ft</td><td>${p.groundspeed} kt</td><td>${p.heading}°</td></tr></table>`+pr;
-}
-$('trkGo').onclick=()=>{vCache.t=0;drawTraffic(true)};
 
 /* Route analysis from filed VATSIM plans */
 function normAlt(a){
@@ -563,7 +423,7 @@ function renderBoard(){
 }
 $('bList').onclick=e=>{
   const l=e.target.dataset.l,d=e.target.dataset.d;
-  if(l!=null){S=board[l];save();render();drawRoute(true)}
+  if(l!=null){S=board[l];save();render();autoPin()}
   if(d!=null){board.splice(d,1);store.set('fd_board',JSON.stringify(board));renderBoard()}
 };
 $('bSave').onclick=()=>{if(!S.dep||!S.arr)return;const c=Object.assign({},S);delete c.ofp;board.unshift(c);board=board.slice(0,30);store.set('fd_board',JSON.stringify(board));renderBoard()};
@@ -615,15 +475,50 @@ function drawChartSel(){
   f.forEach(x=>(by[x.c]=by[x.c]||[]).push(x));
   const codes=[...CH_ORD.filter(c=>by[c]),...Object.keys(by).filter(c=>!CH_ORD.includes(c))];
   sel.innerHTML='<option value="">Select a chart ('+f.length+')</option>'+codes.map(c=>`<optgroup label="${esc(CH_TYPES[c]||'Other')}">`+by[c].map(x=>`<option value="${esc(x.p)}">${esc(x.n)}</option>`).join('')+'</optgroup>').join('');
+  renderPins();
 }
 $('wkUrl').value=store.get('fd_wk')||'';
 $('wkSave').onclick=()=>{store.set('fd_wk',$('wkUrl').value.trim());faaText=null;loadCharts()};
-$('chApt').onchange=loadCharts;$('chQ').oninput=drawChartSel;
-$('chSel').onchange=()=>{const p=$('chSel').value,fr=$('chFrame');if(!p){fr.hidden=true;return}fr.hidden=false;fr.src=(WK()||'https://aeronav.faa.gov')+'/d-tpp/'+faaCycle()+'/'+encodeURIComponent(p)+'#view=FitH'};
+$('chApt').onchange=()=>{loadCharts();renderPins()};$('chQ').oninput=drawChartSel;
+function openChart(p){const fr=$('chFrame');if(!p){fr.hidden=true;return}fr.hidden=false;fr.src=(WK()||'https://aeronav.faa.gov')+'/d-tpp/'+faaCycle()+'/'+encodeURIComponent(p)+'#view=FitH'}
+let pins=[];try{pins=JSON.parse(store.get('fd_pins')||'[]')}catch(e){}
+const savePins=()=>store.set('fd_pins',JSON.stringify(pins));
+function renderPins(){
+  $('pinRow').innerHTML=pins.length?pins.map((x,k)=>`<span class="pin"><button class="ghost" data-o="${k}">${esc(x.i)} ${esc(x.n)}</button><button class="ghost" data-x="${k}" aria-label="Unpin">×</button></span>`).join(''):'<span class="none">No pinned charts. Select a chart and use Pin, or load a SimBrief plan to pin its procedures.</span>';
+  $('chPin').textContent=pins.some(x=>x.i===$('chApt').value&&x.p===$('chSel').value)?'Unpin':'Pin';
+}
+$('pinRow').onclick=e=>{const o=e.target.dataset.o,x=e.target.dataset.x;
+  if(o!=null)openChart(pins[o].p);
+  if(x!=null){pins.splice(x,1);savePins();renderPins()}};
+$('chPin').onclick=()=>{const i=$('chApt').value,p=$('chSel').value;if(!p)return;
+  const k=pins.findIndex(x=>x.i===i&&x.p===p);
+  if(k>=0)pins.splice(k,1);else{const c=chList.find(x=>x.p===p)||{};pins.push({i,n:c.n||p,p,c:c.c||''})}
+  savePins();renderPins()};
+$('chSel').onchange=()=>{openChart($('chSel').value);renderPins()};
+const NUMW=['','ONE','TWO','THREE','FOUR','FIVE','SIX','SEVEN','EIGHT','NINE'];
+function procMatch(list,code,ident){
+  const m=String(ident||'').toUpperCase().match(/^([A-Z]+)(\d)?/);if(!m)return [];
+  const base=m[1],w=m[2]?NUMW[+m[2]]:'',tk=x=>x.n.toUpperCase().split(/\s+/);
+  const hit=list.filter(x=>x.c===code&&(f=>f.startsWith(base)||(f.length>=3&&base.startsWith(f)))(tk(x)[0]));
+  const exact=hit.filter(x=>tk(x)[1]===w);
+  return exact.length?exact:hit;
+}
+async function autoPin(){
+  const out=[];
+  for(const [icao,ident,code] of [[S.dep,S.sid,'DP'],[S.arr,S.star,'STAR']]){
+    if(!icao)continue;
+    try{const l=await faaList(icao);
+      l.filter(x=>x.c==='APD').forEach(x=>out.push({i:icao,n:x.n,p:x.p,c:x.c,a:1}));
+      procMatch(l,code,ident).forEach(x=>out.push({i:icao,n:x.n,p:x.p,c:x.c,a:1}));
+    }catch(e){}
+  }
+  if(!out.length)return;
+  pins=[...out,...pins.filter(x=>!x.a)];savePins();renderPins();
+}
 
 $('src').value=SRC;
 $('src').onchange=()=>{SRC=$('src').value;store.set('fd_src',SRC);vCache.t=0;loadWx()};
-renderBoard();render();
+renderPins();renderBoard();render();
 if($('sbUser').value.trim())$('sbLoad').click();
 </script>
 </body>
