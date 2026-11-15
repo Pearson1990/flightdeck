@@ -136,6 +136,7 @@ td.route{font-family:var(--mono);font-size:.8rem;word-break:break-word;margin:0}
   <button role="tab" data-tab="wx" aria-selected="true">Weather and ATIS</button>
   <button role="tab" data-tab="trk" aria-selected="false">Tracker</button>
   <button role="tab" data-tab="rte" aria-selected="false">Route analysis</button>
+  <button role="tab" data-tab="chr" aria-selected="false">Charts</button>
   <button role="tab" data-tab="va" aria-selected="false">Saved flights</button>
 </nav>
 
@@ -177,6 +178,18 @@ td.route{font-family:var(--mono);font-size:.8rem;word-break:break-word;margin:0}
   <p class="note">For real-world filed routes and altitudes, use Open in FlightAware. The VATSIM list is a snapshot of simulator plans on the network right now.</p>
 </section>
 
+<section id="tab-chr" hidden>
+  <div class="row">
+    <select id="chApt" aria-label="Airport"></select>
+    <input id="chQ" placeholder="Filter charts (ILS, RNAV, procedure name)" style="flex:1;min-width:200px" aria-label="Filter charts">
+    <span class="none" id="chCyc"></span>
+  </div>
+  <div class="row"><select id="chSel" aria-label="Chart" style="flex:1;min-width:260px"></select></div>
+  <div id="chMsg" class="note"></div>
+  <iframe id="chFrame" class="frame" title="FAA chart" style="height:80vh;background:#fff" hidden></iframe>
+  <p class="note">FAA digital Terminal Procedures (d-TPP) for US airports. Charts update every 28 days. For simulation use only.</p>
+</section>
+
 <section id="tab-va" hidden>
   <div class="row"><button id="bSave">Save current flight</button></div>
   <div class="card"><table><tr><th>Callsign</th><th>Route</th><th>Aircraft</th><th></th></tr><tbody id="bList"></tbody></table></div>
@@ -201,8 +214,8 @@ $('theme').onclick=()=>{const dark=root.dataset.theme?root.dataset.theme==='dark
 /* tabs */
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('nav button').forEach(x=>x.setAttribute('aria-selected',x===b));
-  ['wx','trk','rte','va'].forEach(t=>$('tab-'+t).hidden=t!==b.dataset.tab);
-  if(b.dataset.tab==='trk')initMap();if(b.dataset.tab==='rte')analyze();
+  ['wx','trk','rte','chr','va'].forEach(t=>$('tab-'+t).hidden=t!==b.dataset.tab);
+  if(b.dataset.tab==='trk')initMap();if(b.dataset.tab==='rte')analyze();if(b.dataset.tab==='chr'){fillChartApts();loadCharts()}
 });
 
 /* flight state */
@@ -553,6 +566,55 @@ $('bList').onclick=e=>{
   if(d!=null){board.splice(d,1);store.set('fd_board',JSON.stringify(board));renderBoard()}
 };
 $('bSave').onclick=()=>{if(!S.dep||!S.arr)return;const c=Object.assign({},S);delete c.ofp;board.unshift(c);board=board.slice(0,30);store.set('fd_board',JSON.stringify(board));renderBoard()};
+
+/* FAA charts */
+function faaCycle(d){
+  d=d||new Date();const DAY=864e5,base=Date.UTC(2026,0,22),n=Math.floor((d.getTime()-base)/(28*DAY));
+  const eff=base+n*28*DAY,y=new Date(eff).getUTCFullYear();let first=eff;
+  while(new Date(first-28*DAY).getUTCFullYear()===y)first-=28*DAY;
+  return String(y%100).padStart(2,'0')+String((eff-first)/(28*DAY)+1).padStart(2,'0');
+}
+let faaText=null;const chCache={};let chList=[];
+async function faaList(icao){
+  const cyc=faaCycle(),key='fd_ch_'+cyc+'_'+icao;
+  if(chCache[key])return chCache[key];
+  const c=store.get(key);if(c)return chCache[key]=JSON.parse(c);
+  if(!faaText){
+    faaText=await net('https://aeronav.faa.gov/d-tpp/'+cyc+'/xml_data/d-tpp_Metafile.xml');
+    if(!faaText.includes('<airport_name')){faaText=null;throw new Error('unexpected response')}
+  }
+  let list=[];const i=faaText.indexOf('icao_ident="'+icao+'"');
+  if(i>=0){
+    const blk=faaText.slice(faaText.lastIndexOf('<airport_name',i),faaText.indexOf('</airport_name>',i));
+    list=[...blk.matchAll(/<record>([\s\S]*?)<\/record>/g)].map(m=>{
+      const g=t=>{const x=m[1].match(new RegExp('<'+t+'>([\\s\\S]*?)</'+t+'>'));return x?x[1].replace(/&amp;/g,'&').trim():''};
+      return {c:g('chart_code'),n:g('chart_name'),p:g('pdf_name')}}).filter(x=>x.p);
+  }
+  chCache[key]=list;store.set(key,JSON.stringify(list));return list;
+}
+const CH_TYPES={APD:'Airport diagram',DP:'Departures',STAR:'Arrivals',IAP:'Approaches'},CH_ORD=['APD','DP','STAR','IAP'];
+function fillChartApts(){
+  const l=airports(),cur=$('chApt').value;
+  $('chApt').innerHTML=l.map(([i,r])=>`<option value="${esc(i)}">${esc(i)} ${esc(r)}</option>`).join('')||'<option value="">No airports</option>';
+  if(l.some(x=>x[0]===cur))$('chApt').value=cur;
+}
+async function loadCharts(){
+  const ic=$('chApt').value;if(!ic)return;
+  $('chCyc').textContent='Cycle '+faaCycle();$('chFrame').hidden=true;$('chSel').innerHTML='';
+  $('chMsg').textContent='Loading chart list…';
+  try{chList=await faaList(ic);$('chMsg').textContent='';drawChartSel()}
+  catch(e){$('chMsg').innerHTML='<span class="err">Could not load the FAA chart list ('+esc(e.message)+'). The FAA file is large, so your browser or the public proxies may be blocking it.</span>'}
+}
+function drawChartSel(){
+  const sel=$('chSel'),q=$('chQ').value.trim().toLowerCase();
+  if(!chList.length){sel.innerHTML='';$('chMsg').textContent='No FAA charts found for '+$('chApt').value+'. This covers US airports only.';return}
+  const f=chList.filter(x=>!q||x.n.toLowerCase().includes(q)),by={};
+  f.forEach(x=>(by[x.c]=by[x.c]||[]).push(x));
+  const codes=[...CH_ORD.filter(c=>by[c]),...Object.keys(by).filter(c=>!CH_ORD.includes(c))];
+  sel.innerHTML='<option value="">Select a chart ('+f.length+')</option>'+codes.map(c=>`<optgroup label="${esc(CH_TYPES[c]||'Other')}">`+by[c].map(x=>`<option value="${esc(x.p)}">${esc(x.n)}</option>`).join('')+'</optgroup>').join('');
+}
+$('chApt').onchange=loadCharts;$('chQ').oninput=drawChartSel;
+$('chSel').onchange=()=>{const p=$('chSel').value,fr=$('chFrame');if(!p){fr.hidden=true;return}fr.hidden=false;fr.src='https://aeronav.faa.gov/d-tpp/'+faaCycle()+'/'+encodeURIComponent(p)+'#view=FitH'};
 
 $('src').value=SRC;
 $('src').onchange=()=>{SRC=$('src').value;store.set('fd_src',SRC);vCache.t=0;loadWx()};
