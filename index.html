@@ -154,6 +154,7 @@ td.route{font-family:var(--mono);font-size:.8rem;word-break:break-word;margin:0}
     <select id="chApt" aria-label="Airport"></select>
     <input id="chQ" placeholder="Filter charts (ILS, RNAV, procedure name)" style="flex:1;min-width:200px" aria-label="Filter charts">
     <span class="none" id="chCyc"></span>
+    <button class="ghost" id="chReload">Reload list</button>
   </div>
   <div class="row"><select id="chSel" aria-label="Chart" style="flex:1;min-width:260px"></select><button class="ghost" id="chPin">Pin</button></div>
   <div id="chMsg" class="note"></div>
@@ -436,15 +437,21 @@ function faaCycle(d){
   return String(y%100).padStart(2,'0')+String((eff-first)/(28*DAY)+1).padStart(2,'0');
 }
 const WK=()=>(store.get('fd_wk')||'').trim().replace(/\/$/,'');
-let faaText=null;const chCache={};let chList=[];
+let faaText=null,faaP=null;const chCache={};let chList=[];
 async function faaList(icao){
-  const cyc=faaCycle(),key='fd_ch_'+cyc+'_'+icao;
+  const cyc=faaCycle(),key='fd_ch2_'+cyc+'_'+icao;
   if(chCache[key])return chCache[key];
   const c=store.get(key);if(c)return chCache[key]=JSON.parse(c);
   if(!faaText){
     const path='/d-tpp/'+cyc+'/xml_data/d-tpp_Metafile.xml';
-    faaText=WK()?await(await fetch(WK()+path)).text():await net('https://aeronav.faa.gov'+path);
-    if(!faaText.includes('<airport_name')){faaText=null;throw new Error('unexpected response')}
+    faaP=faaP||(async()=>{
+      const r=WK()?await fetch(WK()+path):null;
+      if(r&&!r.ok)throw new Error('HTTP '+r.status);
+      const t=r?await r.text():await net('https://aeronav.faa.gov'+path);
+      if(!t.includes('<airport_name')||!/<\/[A-Za-z_]+>\s*$/.test(t))throw new Error('incomplete or unexpected response');
+      return t;
+    })();
+    try{faaText=await faaP}finally{faaP=null}
   }
   let list=[];const i=faaText.indexOf('icao_ident="'+icao+'"');
   if(i>=0){
@@ -453,7 +460,7 @@ async function faaList(icao){
       const g=t=>{const x=m[1].match(new RegExp('<'+t+'>([\\s\\S]*?)</'+t+'>'));return x?x[1].replace(/&amp;/g,'&').trim():''};
       return {c:g('chart_code'),n:g('chart_name'),p:g('pdf_name')}}).filter(x=>x.p);
   }
-  chCache[key]=list;store.set(key,JSON.stringify(list));return list;
+  if(list.length){chCache[key]=list;store.set(key,JSON.stringify(list))}return list;
 }
 const CH_TYPES={APD:'Airport diagram',DP:'Departures',STAR:'Arrivals',IAP:'Approaches'},CH_ORD=['APD','DP','STAR','IAP'];
 function fillChartApts(){
@@ -479,6 +486,7 @@ function drawChartSel(){
 }
 $('wkUrl').value=store.get('fd_wk')||'';
 $('wkSave').onclick=()=>{store.set('fd_wk',$('wkUrl').value.trim());faaText=null;loadCharts()};
+$('chReload').onclick=()=>{const ic=$('chApt').value,k='fd_ch2_'+faaCycle()+'_'+ic;delete chCache[k];try{localStorage.removeItem(k)}catch(e){}faaText=null;loadCharts()};
 $('chApt').onchange=()=>{loadCharts();renderPins()};$('chQ').oninput=drawChartSel;
 function openChart(p){const fr=$('chFrame');if(!p){fr.hidden=true;return}fr.hidden=false;fr.src=(WK()||'https://aeronav.faa.gov')+'/d-tpp/'+faaCycle()+'/'+encodeURIComponent(p)+'#view=FitH'}
 let pins=[];try{pins=JSON.parse(store.get('fd_pins')||'[]')}catch(e){}
